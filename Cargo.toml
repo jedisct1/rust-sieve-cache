@@ -2,7 +2,11 @@
 name = "sieve-cache"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "SIEVE cache replacement policy"
+homepage = "https://github.com/jedisct1/rust-sieve-cache"
+keywords = ["cache"]
+license = "MIT"
+authors = ["Frank Denis <github@pureftpd.org>"]
+categories = ["algorithms", "caching"]
 
 [dependencies]
