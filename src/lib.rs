@@ -199,7 +199,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
 
 #[test]
 fn test() {
-    let mut cache: SieveCache<String, String> = SieveCache::new(3).unwrap();
+    let mut cache = SieveCache::new(3).unwrap();
     cache.insert("foo".to_string(), "foocontent".to_string());
     cache.insert("bar".to_string(), "barcontent".to_string());
     cache.remove("bar");

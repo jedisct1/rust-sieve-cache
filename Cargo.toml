@@ -1,10 +1,10 @@
 [package]
 name = "sieve-cache"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "SIEVE cache replacement policy"
 homepage = "https://github.com/jedisct1/rust-sieve-cache"
-keywords = ["cache"]
+keywords = ["cache", "replacement", "sieve"]
 license = "MIT"
 authors = ["Frank Denis <github@pureftpd.org>"]
 categories = ["algorithms", "caching"]
