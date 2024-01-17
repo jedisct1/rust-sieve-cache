@@ -4,7 +4,7 @@
 
 This is an implementation of the [SIEVE](http://sievecache.com) cache replacement algorithm for Rust.
 
-- [API documentation](https://docs.rs/sieve-cache/0.1.2/sieve_cache/struct.SieveCache.html)
+- [API documentation](https://docs.rs/sieve-cache/0.1.2/sieve_cache)
 - [`crates.io` page](https://crates.io/crates/sieve-cache)
 
 SIEVE is an eviction algorithm simpler than LRU that achieves state-of-the-art efficiency on skewed workloads.
