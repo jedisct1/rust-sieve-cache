@@ -67,6 +67,8 @@ pub struct SieveCache<K: Eq + Hash + Clone, V> {
     len: usize,
 }
 
+unsafe impl<K: Eq + Hash + Clone, V> Send for SieveCache<K, V> {}
+
 impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     /// Create a new cache with the given capacity.
     pub fn new(capacity: usize) -> Result<Self, &'static str> {
