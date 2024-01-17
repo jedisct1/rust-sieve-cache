@@ -9,4 +9,15 @@ license = "MIT"
 authors = ["Frank Denis <github@pureftpd.org>"]
 categories = ["algorithms", "caching"]
 
-[dependencies]
+[dev-dependencies]
+criterion = "0.5"
+rand = "0.8.5"
+rand_distr = "0.4.3"
+
+[[bench]]
+name = "criterion"
+harness = false
+
+[profile.release]
+panic = "abort"
+opt-level = 3
