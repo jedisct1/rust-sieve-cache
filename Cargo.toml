@@ -4,10 +4,12 @@ version = "0.1.2"
 edition = "2021"
 description = "SIEVE cache replacement policy"
 homepage = "https://github.com/jedisct1/rust-sieve-cache"
+repository = "https://github.com/jedisct1/rust-sieve-cache"
 keywords = ["cache", "replacement", "sieve"]
 license = "MIT"
 authors = ["Frank Denis <github@pureftpd.org>"]
 categories = ["algorithms", "caching"]
+readme = "README.md"
 
 [dev-dependencies]
 criterion = "0.5"

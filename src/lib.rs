@@ -1,3 +1,38 @@
+//! A cache based on the SIEVE eviction algorithm.
+//!
+//! # Usage
+//!
+//! ```rust
+//! use sieve_cache::SieveCache;
+//!
+//! // Create a new cache with a capacity of 100000.
+//! let mut cache: SieveCache<String, String> = SieveCache::new(100000).unwrap();
+//!
+//! // Insert key/value pairs into the cache.
+//! cache.insert("foo".to_string(), "foocontent".to_string());
+//! cache.insert("bar".to_string(), "barcontent".to_string());
+//!
+//! // Remove an entry from the cache.
+//! cache.remove("bar");
+//!
+//! // Retrieve a value from the cache, returning `None` or a reference to the value.
+//! assert_eq!(cache.get("foo"), Some(&"foocontent".to_string()));
+//!
+//! // Check if a key is in the cache.
+//! assert_eq!(cache.contains_key("bar"), false);
+//!
+//! // Get a mutable reference to a value in the cache.
+//! if let Some(value) = cache.get_mut("foo") {
+//!    *value = "newfoocontent".to_string();
+//! }
+//!
+//! // Return the number of cached values.
+//! assert_eq!(cache.len(), 1);
+//!
+//! // Return the capacity of the cache.
+//! assert_eq!(cache.capacity(), 100000);
+//! ```
+
 use std::borrow::Borrow;
 use std::hash::Hash;
 use std::{collections::HashMap, ptr::NonNull};
@@ -22,13 +57,14 @@ impl<K: Eq + Hash + Clone, V> Node<K, V> {
     }
 }
 
+/// A cache based on the SIEVE eviction algorithm.
 pub struct SieveCache<K: Eq + Hash + Clone, V> {
-    capacity: usize,
-    len: usize,
+    map: HashMap<K, Box<Node<K, V>>>,
     head: Option<NonNull<Node<K, V>>>,
     tail: Option<NonNull<Node<K, V>>>,
     hand: Option<NonNull<Node<K, V>>>,
-    map: HashMap<K, Box<Node<K, V>>>,
+    capacity: usize,
+    len: usize,
 }
 
 impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
@@ -38,34 +74,34 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
             return Err("capacity must be greater than 0");
         }
         Ok(Self {
-            capacity,
-            len: 0,
+            map: HashMap::with_capacity(capacity),
             head: None,
             tail: None,
             hand: None,
-            map: HashMap::with_capacity(capacity),
+            capacity,
+            len: 0,
         })
     }
 
-    /// Returns the capacity of the cache.
+    /// Return the capacity of the cache.
     #[inline]
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
-    /// Returns the number of cached values.
+    /// Return the number of cached values.
     #[inline]
     pub fn len(&self) -> usize {
         self.len
     }
 
-    /// Returns `true` when no values are currently cached.
+    /// Return `true` when no values are currently cached.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
-    /// Returns `true` if there is a value in the cache mapped to by `key`.
+    /// Return `true` if there is a value in the cache mapped to by `key`.
     #[inline]
     pub fn contains_key<Q: ?Sized>(&mut self, key: &Q) -> bool
     where
