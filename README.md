@@ -18,7 +18,7 @@ use sieve_cache::SieveCache;
 
 // Create a new cache with a capacity of 100000.
 let mut cache: SieveCache<String, String> = SieveCache::new(100000).unwrap();
-//!
+
 // Insert key/value pairs into the cache.
 cache.insert("foo".to_string(), "foocontent".to_string());
 cache.insert("bar".to_string(), "barcontent".to_string());
