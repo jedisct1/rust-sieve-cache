@@ -114,7 +114,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
         let node = self.map.get_mut(&key);
         if let Some(node_) = node {
             node_.value = value;
-            return true;
+            return false;
         }
         if self.len >= self.capacity {
             self.evict();
@@ -124,7 +124,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
         self.map.insert(key, node);
         debug_assert!(self.len < self.capacity);
         self.len += 1;
-        false
+        true
     }
 
     /// Remove the cache entry mapped to by `key`.
@@ -205,11 +205,23 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
 #[test]
 fn test() {
     let mut cache = SieveCache::new(3).unwrap();
-    cache.insert("foo".to_string(), "foocontent".to_string());
-    cache.insert("bar".to_string(), "barcontent".to_string());
+    assert_eq!(
+        cache.insert("foo".to_string(), "foocontent".to_string()),
+        true
+    );
+    assert_eq!(
+        cache.insert("bar".to_string(), "barcontent".to_string()),
+        true
+    );
     cache.remove("bar");
-    cache.insert("bar2".to_string(), "bar2content".to_string());
-    cache.insert("bar3".to_string(), "bar3content".to_string());
+    assert_eq!(
+        cache.insert("bar2".to_string(), "bar2content".to_string()),
+        true
+    );
+    assert_eq!(
+        cache.insert("bar3".to_string(), "bar3content".to_string()),
+        true
+    );
     assert_eq!(cache.get("foo"), Some(&"foocontent".to_string()));
     assert_eq!(cache.get("bar"), None);
     assert_eq!(cache.get("bar2"), Some(&"bar2content".to_string()));
