@@ -113,8 +113,8 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     pub fn insert(&mut self, key: K, value: V) -> bool {
         let node = self.map.get_mut(&key);
         if let Some(node_) = node {
-            node_.value = value;
             node_.visited = true;
+            node_.value = value;
             return false;
         }
         if self.len >= self.capacity {
@@ -122,6 +122,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
         }
         let node = Box::new(Node::new(key.clone(), value));
         self.add_node(NonNull::from(node.as_ref()));
+        debug_assert_eq!(node.visited, false);
         self.map.insert(key, node);
         debug_assert!(self.len < self.capacity);
         self.len += 1;
