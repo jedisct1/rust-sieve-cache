@@ -72,9 +72,9 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
 
     /// Return `true` if there is a value in the cache mapped to by `key`.
     #[inline]
-    pub fn contains_key<Q: ?Sized>(&mut self, key: &Q) -> bool
+    pub fn contains_key<Q>(&mut self, key: &Q) -> bool
     where
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
         K: Borrow<Q>,
     {
         self.map.contains_key(key)
@@ -83,9 +83,9 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     /// Get an immutable reference to the value in the cache mapped to by `key`.
     ///
     /// If no value exists for `key`, this returns `None`.
-    pub fn get<Q: ?Sized>(&mut self, key: &Q) -> Option<&V>
+    pub fn get<Q>(&mut self, key: &Q) -> Option<&V>
     where
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
         K: Borrow<Q>,
     {
         let node_ = self.map.get_mut(key)?;
@@ -96,9 +96,9 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     /// Get a mutable reference to the value in the cache mapped to by `key`.
     ///
     /// If no value exists for `key`, this returns `None`.
-    pub fn get_mut<Q: ?Sized>(&mut self, key: &Q) -> Option<&mut V>
+    pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
     where
-        Q: Hash + Eq,
+        Q: Hash + Eq + ?Sized,
         K: Borrow<Q>,
     {
         let node_ = self.map.get_mut(key)?;
@@ -133,10 +133,10 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     ///
     /// This method returns the value removed from the cache. If `key` did not map to any value,
     /// then this returns `None`.
-    pub fn remove<Q: ?Sized>(&mut self, key: &Q) -> Option<V>
+    pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
     where
         K: Borrow<Q>,
-        Q: Eq + Hash,
+        Q: Eq + Hash + ?Sized,
     {
         let node_ = self.map.get_mut(key)?;
         let node__ = NonNull::from(node_.as_ref());
