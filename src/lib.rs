@@ -122,7 +122,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
         }
         let node = Box::new(Node::new(key.clone(), value));
         self.add_node(NonNull::from(node.as_ref()));
-        debug_assert_eq!(node.visited, false);
+        debug_assert!(!node.visited);
         self.map.insert(key, node);
         debug_assert!(self.len < self.capacity);
         self.len += 1;
@@ -207,22 +207,18 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
 #[test]
 fn test() {
     let mut cache = SieveCache::new(3).unwrap();
-    assert_eq!(
-        cache.insert("foo".to_string(), "foocontent".to_string()),
-        true
+    assert!(
+        cache.insert("foo".to_string(), "foocontent".to_string())
     );
-    assert_eq!(
-        cache.insert("bar".to_string(), "barcontent".to_string()),
-        true
+    assert!(
+        cache.insert("bar".to_string(), "barcontent".to_string())
     );
     cache.remove("bar");
-    assert_eq!(
-        cache.insert("bar2".to_string(), "bar2content".to_string()),
-        true
+    assert!(
+        cache.insert("bar2".to_string(), "bar2content".to_string())
     );
-    assert_eq!(
-        cache.insert("bar3".to_string(), "bar3content".to_string()),
-        true
+    assert!(
+        cache.insert("bar3".to_string(), "bar3content".to_string())
     );
     assert_eq!(cache.get("foo"), Some(&"foocontent".to_string()));
     assert_eq!(cache.get("bar"), None);
