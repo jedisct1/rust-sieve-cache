@@ -114,6 +114,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
         let node = self.map.get_mut(&key);
         if let Some(node_) = node {
             node_.value = value;
+            node_.visited = true;
             return false;
         }
         if self.len >= self.capacity {
@@ -226,4 +227,16 @@ fn test() {
     assert_eq!(cache.get("bar"), None);
     assert_eq!(cache.get("bar2"), Some(&"bar2content".to_string()));
     assert_eq!(cache.get("bar3"), Some(&"bar3content".to_string()));
+}
+
+#[test]
+fn test_visited_flag_update() {
+    let mut cache = SieveCache::new(2).unwrap();
+    cache.insert("key1".to_string(), "value1".to_string());
+    cache.insert("key2".to_string(), "value2".to_string());
+    // update `key1` entry.
+    cache.insert("key1".to_string(), "updated".to_string());
+    // new entry is added.
+    cache.insert("key3".to_string(), "value3".to_string());
+    assert_eq!(cache.get("key1"), Some(&"updated".to_string()));
 }
