@@ -204,7 +204,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
 }
 
 #[test]
-fn smoke_test() {
+fn test() {
     let mut cache = SieveCache::new(3).unwrap();
     assert_eq!(
         cache.insert("foo".to_string(), "foocontent".to_string()),
