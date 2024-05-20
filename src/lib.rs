@@ -140,6 +140,11 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     {
         let node_ = self.map.get_mut(key)?;
         let node__ = NonNull::from(node_.as_ref());
+        if self.hand.is_some() {
+            if self.hand == Some(node__) {
+                self.hand = node_.as_ref().prev;
+            }
+        }
         let value = self.map.remove(key).map(|node| node.value);
         self.remove_node(node__);
         debug_assert!(self.len > 0);
@@ -207,19 +212,11 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
 #[test]
 fn test() {
     let mut cache = SieveCache::new(3).unwrap();
-    assert!(
-        cache.insert("foo".to_string(), "foocontent".to_string())
-    );
-    assert!(
-        cache.insert("bar".to_string(), "barcontent".to_string())
-    );
+    assert!(cache.insert("foo".to_string(), "foocontent".to_string()));
+    assert!(cache.insert("bar".to_string(), "barcontent".to_string()));
     cache.remove("bar");
-    assert!(
-        cache.insert("bar2".to_string(), "bar2content".to_string())
-    );
-    assert!(
-        cache.insert("bar3".to_string(), "bar3content".to_string())
-    );
+    assert!(cache.insert("bar2".to_string(), "bar2content".to_string()));
+    assert!(cache.insert("bar3".to_string(), "bar3content".to_string()));
     assert_eq!(cache.get("foo"), Some(&"foocontent".to_string()));
     assert_eq!(cache.get("bar"), None);
     assert_eq!(cache.get("bar2"), Some(&"bar2content".to_string()));
