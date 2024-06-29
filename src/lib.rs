@@ -140,7 +140,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     {
         let node_ = self.map.get_mut(key)?;
         let node__ = NonNull::from(node_.as_ref());
-        if self.hand.is_some() && self.hand == Some(node__) {
+        if self.hand == Some(node__) {
             self.hand = node_.as_ref().prev;
         }
         let value = self.map.remove(key).map(|node| node.value);
