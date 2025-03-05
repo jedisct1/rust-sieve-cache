@@ -2,7 +2,7 @@
 extern crate criterion;
 
 use criterion::{black_box, Criterion};
-use rand::thread_rng;
+use rand::rng;
 use rand_distr::{Distribution, Normal, Uniform};
 use sieve_cache::SieveCache;
 
@@ -27,8 +27,8 @@ fn bench_sequence(c: &mut Criterion) {
 fn bench_composite(c: &mut Criterion) {
     c.bench_function("bench_composite", |b| {
         let mut cache: SieveCache<u64, (Vec<u8>, u64)> = SieveCache::new(68).unwrap();
-        let mut rng = thread_rng();
-        let uniform = Uniform::new(0, 100);
+        let mut rng = rng();
+        let uniform = Uniform::new(0, 100).unwrap();
         let mut rand_iter = uniform.sample_iter(&mut rng);
         b.iter(|| {
             for _ in 1..1000 {
@@ -53,7 +53,7 @@ fn bench_composite_normal(c: &mut Criterion) {
         let mut cache: SieveCache<u64, (Vec<u8>, u64)> = SieveCache::new(SIGMA as usize).unwrap();
 
         // This should roughly cover all elements (within 3-sigma)
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let normal = Normal::new(50.0, SIGMA).unwrap();
         let mut rand_iter = normal.sample_iter(&mut rng).map(|x| (x as u64) % 100);
         b.iter(|| {
