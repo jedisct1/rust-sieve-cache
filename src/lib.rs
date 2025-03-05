@@ -150,6 +150,40 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
         value
     }
 
+    /// Remove and return a value from the cache that was not recently accessed.
+    /// If no such value exists, this returns `None`.
+    /// The returned value is not necessarily the oldest value in the cache.
+    /// Ask @echaozh on GitHub for details about use cases.
+    pub fn evict(&mut self) -> Option<V> {
+        let mut node = self.hand.or(self.tail);
+        while node.is_some() {
+            let mut node_ = node.unwrap();
+            unsafe {
+                if !node_.as_ref().visited {
+                    break;
+                }
+                node_.as_mut().visited = false;
+                if node_.as_ref().prev.is_some() {
+                    node = node_.as_ref().prev;
+                } else {
+                    node = self.tail;
+                }
+            }
+        }
+        if let Some(node_) = node {
+            let value = unsafe {
+                self.hand = node_.as_ref().prev;
+                self.map.remove(&node_.as_ref().key).map(|node| node.value)
+            };
+            self.remove_node(node_);
+            debug_assert!(self.len > 0);
+            self.len -= 1;
+            value
+        } else {
+            None
+        }
+    }
+
     fn add_node(&mut self, mut node: NonNull<Node<K, V>>) {
         unsafe {
             node.as_mut().next = self.head;
@@ -176,33 +210,6 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
             } else {
                 self.tail = node.as_ref().prev;
             }
-        }
-    }
-
-    fn evict(&mut self) {
-        let mut node = self.hand.or(self.tail);
-        while node.is_some() {
-            let mut node_ = node.unwrap();
-            unsafe {
-                if !node_.as_ref().visited {
-                    break;
-                }
-                node_.as_mut().visited = false;
-                if node_.as_ref().prev.is_some() {
-                    node = node_.as_ref().prev;
-                } else {
-                    node = self.tail;
-                }
-            }
-        }
-        if let Some(node_) = node {
-            unsafe {
-                self.hand = node_.as_ref().prev;
-                self.map.remove(&node_.as_ref().key);
-            }
-            self.remove_node(node_);
-            debug_assert!(self.len > 0);
-            self.len -= 1;
         }
     }
 }
