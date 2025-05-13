@@ -44,3 +44,46 @@ assert_eq!(cache.len(), 1);
 assert_eq!(cache.capacity(), 100000);
 ```
 
+## Thread-safe Cache Example
+
+You can also use the thread-safe wrapper `SyncSieveCache` for concurrent access:
+
+```rust
+use sieve_cache::SyncSieveCache;
+use std::thread;
+
+// Create a thread-safe cache with a capacity of 100000.
+let cache = SyncSieveCache::new(100000).unwrap();
+let cache_clone = cache.clone();
+
+// Insert key/value pairs into the cache from the main thread.
+cache.insert("foo".to_string(), "foocontent".to_string());
+
+// Access the cache from another thread.
+let handle = thread::spawn(move || {
+    cache_clone.insert("bar".to_string(), "barcontent".to_string());
+    
+    // Retrieve a value from the cache. Returns a clone of the value.
+    assert_eq!(cache_clone.get(&"foo".to_string()), Some("foocontent".to_string()));
+});
+
+// Wait for the thread to complete.
+handle.join().unwrap();
+
+// Check if keys exist in the cache.
+assert!(cache.contains_key(&"foo".to_string()));
+assert!(cache.contains_key(&"bar".to_string()));
+
+// Remove an entry from the cache.
+cache.remove(&"bar".to_string());
+
+// Return the number of cached values.
+assert_eq!(cache.len(), 1);
+
+// Perform multiple operations atomically.
+cache.with_lock(|inner_cache| {
+    inner_cache.insert("atomic1".to_string(), "value1".to_string());
+    inner_cache.insert("atomic2".to_string(), "value2".to_string());
+});
+```
+

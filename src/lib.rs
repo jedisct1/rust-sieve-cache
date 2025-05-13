@@ -4,6 +4,9 @@ use std::borrow::Borrow;
 use std::hash::Hash;
 use std::{collections::HashMap, ptr::NonNull};
 
+mod sync;
+pub use sync::SyncSieveCache;
+
 struct Node<K: Eq + Hash + Clone, V> {
     key: K,
     value: V,
