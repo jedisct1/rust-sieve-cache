@@ -4,7 +4,10 @@ use std::borrow::Borrow;
 use std::hash::Hash;
 use std::{collections::HashMap, ptr::NonNull};
 
+mod sharded;
 mod sync;
+
+pub use sharded::ShardedSieveCache;
 pub use sync::SyncSieveCache;
 
 struct Node<K: Eq + Hash + Clone, V> {

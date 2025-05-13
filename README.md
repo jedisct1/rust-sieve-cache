@@ -44,9 +44,11 @@ assert_eq!(cache.len(), 1);
 assert_eq!(cache.capacity(), 100000);
 ```
 
-## Thread-safe Cache Example
+## Thread-safe Cache Examples
 
-You can also use the thread-safe wrapper `SyncSieveCache` for concurrent access:
+### Basic Thread-safe Cache
+
+You can use the thread-safe wrapper `SyncSieveCache` for concurrent access:
 
 ```rust
 use sieve_cache::SyncSieveCache;
@@ -62,7 +64,7 @@ cache.insert("foo".to_string(), "foocontent".to_string());
 // Access the cache from another thread.
 let handle = thread::spawn(move || {
     cache_clone.insert("bar".to_string(), "barcontent".to_string());
-    
+
     // Retrieve a value from the cache. Returns a clone of the value.
     assert_eq!(cache_clone.get(&"foo".to_string()), Some("foocontent".to_string()));
 });
@@ -85,5 +87,57 @@ cache.with_lock(|inner_cache| {
     inner_cache.insert("atomic1".to_string(), "value1".to_string());
     inner_cache.insert("atomic2".to_string(), "value2".to_string());
 });
+```
+
+### Sharded Thread-safe Cache
+
+For higher concurrency, you can use the sharded implementation `ShardedSieveCache` which uses multiple internal locks to reduce contention:
+
+```rust
+use sieve_cache::ShardedSieveCache;
+use std::thread;
+use std::sync::Arc;
+
+// Create a sharded cache with default shard count (16)
+let cache = Arc::new(ShardedSieveCache::new(100000).unwrap());
+
+// Or specify a custom number of shards
+// let cache = Arc::new(ShardedSieveCache::with_shards(100000, 32).unwrap());
+
+// Insert key/value pairs from the main thread
+cache.insert("foo".to_string(), "foocontent".to_string());
+
+// Create multiple worker threads
+let mut handles = vec![];
+for i in 0..8 {
+    let cache_clone = Arc::clone(&cache);
+    let handle = thread::spawn(move || {
+        // Each thread inserts multiple values
+        for j in 0..100 {
+            let key = format!("key_thread{}_item{}", i, j);
+            let value = format!("value_{}", j);
+            cache_clone.insert(key, value);
+        }
+    });
+    handles.push(handle);
+}
+
+// Wait for all threads to complete
+for handle in handles {
+    handle.join().unwrap();
+}
+
+// Perform operations specific to a key's shard
+cache.with_key_lock(&"foo", |shard| {
+    shard.insert("related_key1".to_string(), "value1".to_string());
+    shard.insert("related_key2".to_string(), "value2".to_string());
+});
+
+// Get the number of entries across all shards
+assert_eq!(cache.len(), 803); // 800 from threads + 1 "foo" + 2 related keys
+
+// Get cache statistics
+println!("Cache has {} shards with total capacity {}",
+         cache.num_shards(), cache.capacity());
 ```
 

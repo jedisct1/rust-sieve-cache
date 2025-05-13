@@ -2,3 +2,5 @@
 zig-cache
 *~
 Cargo.lock
+
+**/.claude/settings.local.json
