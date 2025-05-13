@@ -1,18 +1,28 @@
 [package]
 name = "sieve-cache"
-version = "0.2.1"
+version = "1.0.0"
 edition = "2021"
-description = "SIEVE cache replacement policy"
+description = "SIEVE cache replacement policy with thread-safe wrappers"
 homepage = "https://github.com/jedisct1/rust-sieve-cache"
 repository = "https://github.com/jedisct1/rust-sieve-cache"
-keywords = ["cache", "replacement", "sieve"]
+documentation = "https://docs.rs/sieve-cache"
+keywords = ["cache", "replacement", "sieve", "thread-safe", "concurrent"]
 license = "MIT"
 authors = ["Frank Denis <github@pureftpd.org>"]
-categories = ["algorithms", "caching"]
+categories = ["algorithms", "caching", "concurrency", "data-structures"]
 readme = "README.md"
+rust-version = "1.60.0"
+
+[features]
+default = ["sync", "sharded"]
+sync = []
+sharded = []
+doctest = ["sync", "sharded"]
+
+[dependencies]
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = { version = "0.5", features = ["html_reports"] }
 rand = "0.9.0"
 rand_distr = "0.5.1"
 
@@ -20,6 +30,18 @@ rand_distr = "0.5.1"
 name = "criterion"
 harness = false
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [profile.release]
 panic = "abort"
 opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.bench]
+opt-level = 3
+debug = true
+lto = "thin"

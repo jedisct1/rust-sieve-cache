@@ -2,47 +2,69 @@
 
 //! # SIEVE Cache for Rust
 //!
-//! This crate provides three implementations of the SIEVE cache replacement algorithm:
+//! This crate provides implementations of the SIEVE cache replacement algorithm:
 //!
-//! * [`SieveCache`] - The core single-threaded implementation
-//! * [`SyncSieveCache`] - A thread-safe wrapper using a single lock
-//! * [`ShardedSieveCache`] - A high-concurrency implementation using multiple locks
-//!
-//! ## The SIEVE Algorithm
-//!
-//! SIEVE (Simple, space-efficient, In-memory, EViction mEchanism) is a cache eviction
-//! algorithm that maintains a single bit per entry to track whether an item has been
-//! "visited" since it was last considered for eviction. This approach requires less
-//! state than LRU but achieves excellent performance, especially on skewed workloads.
-//!
-//! ## Cache Implementation Details
-//!
-//! The cache is implemented as a combination of:
-//!
-//! 1. A `HashMap` for O(1) key lookups
-//! 2. A doubly-linked list for managing the eviction order
-//! 3. A "visited" flag on each entry to track recent access
-//!
-//! When the cache is full and a new item is inserted, the eviction algorithm:
-//! 1. Starts from the "hand" position (or tail if no hand)
-//! 2. Finds the first non-visited entry, evicting it
-//! 3. Marks all visited entries as non-visited while searching
-//!
-//! ## Choosing the Right Implementation
-//!
-//! - Use [`SieveCache`] for single-threaded applications
-//! - Use [`SyncSieveCache`] for multi-threaded applications with moderate concurrency
-//! - Use [`ShardedSieveCache`] for applications with high concurrency where operations
-//!   are distributed across many different keys
+//! * [`SieveCache`] - The core single-threaded implementation (always available)
+
+#[cfg(feature = "sync")]
+pub mod _docs_sync {}
+
+#[cfg(feature = "sharded")]
+pub mod _docs_sharded {}
+
+pub mod _sieve_algorithm {
+    //! ## The SIEVE Algorithm
+    //!
+    //! SIEVE (Simple, space-efficient, In-memory, EViction mEchanism) is a cache eviction
+    //! algorithm that maintains a single bit per entry to track whether an item has been
+    //! "visited" since it was last considered for eviction. This approach requires less
+    //! state than LRU but achieves excellent performance, especially on skewed workloads.
+}
+
+pub mod _cache_implementation {
+    //! ## Cache Implementation Details
+    //!
+    //! The cache is implemented as a combination of:
+    //!
+    //! 1. A `HashMap` for O(1) key lookups
+    //! 2. A doubly-linked list for managing the eviction order
+    //! 3. A "visited" flag on each entry to track recent access
+    //!
+    //! When the cache is full and a new item is inserted, the eviction algorithm:
+    //! 1. Starts from the "hand" position (or tail if no hand)
+    //! 2. Finds the first non-visited entry, evicting it
+    //! 3. Marks all visited entries as non-visited while searching
+}
+
+pub mod _implementation_choice {
+    //! ## Choosing the Right Implementation
+    //!
+    //! - Use [`SieveCache`] for single-threaded applications
+}
+
+#[cfg(feature = "sync")]
+pub mod _docs_sync_usage {
+    //! - Use [`SyncSieveCache`] for multi-threaded applications with moderate concurrency
+}
+
+#[cfg(feature = "sharded")]
+pub mod _docs_sharded_usage {
+    //! - Use [`ShardedSieveCache`] for applications with high concurrency where operations
+    //!   are distributed across many different keys
+}
 
 use std::borrow::Borrow;
 use std::hash::Hash;
 use std::{collections::HashMap, ptr::NonNull};
 
+#[cfg(feature = "sharded")]
 mod sharded;
+#[cfg(feature = "sync")]
 mod sync;
 
+#[cfg(feature = "sharded")]
 pub use sharded::ShardedSieveCache;
+#[cfg(feature = "sync")]
 pub use sync::SyncSieveCache;
 
 struct Node<K: Eq + Hash + Clone, V> {
@@ -71,8 +93,11 @@ impl<K: Eq + Hash + Clone, V> Node<K, V> {
 /// strategy that balances simplicity with good performance characteristics, especially on
 /// skewed workloads common in real-world applications.
 ///
-/// This is the single-threaded implementation. For thread-safe variants, see [`SyncSieveCache`]
-/// and [`ShardedSieveCache`].
+/// This is the single-threaded implementation.
+#[cfg(feature = "sync")]
+/// For thread-safe variants, see [`SyncSieveCache`] (with the `sync` feature)
+#[cfg(feature = "sharded")]
+/// and [`ShardedSieveCache`] (with the `sharded` feature).
 ///
 /// # Type Parameters
 ///
@@ -81,7 +106,9 @@ impl<K: Eq + Hash + Clone, V> Node<K, V> {
 ///
 /// # Example
 ///
-/// ```
+/// ```rust
+/// # #[cfg(feature = "doctest")]
+/// # {
 /// use sieve_cache::SieveCache;
 ///
 /// // Create a new cache with capacity for 1000 items
@@ -109,6 +136,7 @@ impl<K: Eq + Hash + Clone, V> Node<K, V> {
 /// // Remove a value
 /// let removed = cache.remove("key2");
 /// assert_eq!(removed, Some("value2".to_string()));
+/// # }
 /// ```
 pub struct SieveCache<K: Eq + Hash + Clone, V> {
     /// Map of keys to cache entries
@@ -140,7 +168,9 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
     /// use sieve_cache::SieveCache;
     ///
     /// // Create a cache with space for 100 entries
@@ -149,6 +179,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     /// // Capacity of zero is invalid
     /// let invalid = SieveCache::<String, u32>::new(0);
     /// assert!(invalid.is_err());
+    /// # }
     /// ```
     pub fn new(capacity: usize) -> Result<Self, &'static str> {
         if capacity == 0 {
@@ -171,11 +202,14 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
     /// use sieve_cache::SieveCache;
     ///
     /// let cache = SieveCache::<String, u32>::new(100).unwrap();
     /// assert_eq!(cache.capacity(), 100);
+    /// # }
     /// ```
     #[inline]
     pub fn capacity(&self) -> usize {
@@ -188,7 +222,9 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
     /// use sieve_cache::SieveCache;
     ///
     /// let mut cache = SieveCache::new(100).unwrap();
@@ -196,6 +232,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     ///
     /// cache.insert("key".to_string(), 42);
     /// assert_eq!(cache.len(), 1);
+    /// # }
     /// ```
     #[inline]
     pub fn len(&self) -> usize {
@@ -206,7 +243,9 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
     /// use sieve_cache::SieveCache;
     ///
     /// let mut cache = SieveCache::<String, u32>::new(100).unwrap();
@@ -217,10 +256,11 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     ///
     /// cache.remove("key");
     /// assert!(cache.is_empty());
+    /// # }
     /// ```
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.len == 0
     }
 
     /// Returns `true` if there is a value in the cache mapped to by `key`.
@@ -230,7 +270,9 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
     /// use sieve_cache::SieveCache;
     ///
     /// let mut cache = SieveCache::new(100).unwrap();
@@ -238,6 +280,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     ///
     /// assert!(cache.contains_key("key"));
     /// assert!(!cache.contains_key("missing"));
+    /// # }
     /// ```
     #[inline]
     pub fn contains_key<Q>(&mut self, key: &Q) -> bool
@@ -257,7 +300,9 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
     /// use sieve_cache::SieveCache;
     ///
     /// let mut cache = SieveCache::new(100).unwrap();
@@ -265,6 +310,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     ///
     /// assert_eq!(cache.get("key"), Some(&"value".to_string()));
     /// assert_eq!(cache.get("missing"), None);
+    /// # }
     /// ```
     pub fn get<Q>(&mut self, key: &Q) -> Option<&V>
     where
@@ -286,7 +332,9 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
     /// use sieve_cache::SieveCache;
     ///
     /// let mut cache = SieveCache::new(100).unwrap();
@@ -298,6 +346,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     /// }
     ///
     /// assert_eq!(cache.get("key"), Some(&"new_value".to_string()));
+    /// # }
     /// ```
     pub fn get_mut<Q>(&mut self, key: &Q) -> Option<&mut V>
     where
@@ -322,7 +371,9 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
     /// use sieve_cache::SieveCache;
     ///
     /// let mut cache = SieveCache::new(100).unwrap();
@@ -336,6 +387,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     /// assert!(!is_new); // Returns false for updates
     ///
     /// assert_eq!(cache.get("key1"), Some(&"updated".to_string()));
+    /// # }
     /// ```
     pub fn insert(&mut self, key: K, value: V) -> bool {
         // Check if key already exists
@@ -374,7 +426,9 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
     /// use sieve_cache::SieveCache;
     ///
     /// let mut cache = SieveCache::new(100).unwrap();
@@ -390,6 +444,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     /// assert_eq!(removed, None);
     ///
     /// assert_eq!(cache.len(), 1); // Only one entry remains
+    /// # }
     /// ```
     pub fn remove<Q>(&mut self, key: &Q) -> Option<V>
     where
@@ -436,7 +491,9 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
     /// use sieve_cache::SieveCache;
     ///
     /// let mut cache = SieveCache::new(3).unwrap();
@@ -452,6 +509,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     /// let evicted = cache.evict();
     /// assert!(evicted.is_some());
     /// assert!(!cache.contains_key("key3")); // key3 was evicted
+    /// # }
     /// ```
     pub fn evict(&mut self) -> Option<V> {
         // Start from the hand pointer or the tail if hand is None

@@ -67,6 +67,10 @@ let evicted = cache.evict();  // Returns and removes a value that wasn't recentl
 
 ## Thread-Safe Implementations
 
+These implementations are available when using the appropriate feature flags:
+- `SyncSieveCache` is available with the `sync` feature (enabled by default)
+- `ShardedSieveCache` is available with the `sharded` feature (enabled by default)
+
 ### `SyncSieveCache` - Basic Thread-Safe Cache
 
 For concurrent access from multiple threads, you can use the `SyncSieveCache` wrapper, which provides thread safety with a single global lock:
@@ -189,6 +193,29 @@ The `ShardedSieveCache` divides the cache into multiple independent segments (sh
 3. Operations on keys in different shards can proceed in parallel
 
 This design significantly reduces lock contention when operations are distributed across different keys, making it ideal for high-concurrency workloads.
+
+## Feature Flags
+
+This crate provides the following feature flags to control which implementations are available:
+
+- `sync`: Enables the thread-safe `SyncSieveCache` implementation (enabled by default)
+- `sharded`: Enables the sharded `ShardedSieveCache` implementation (enabled by default)
+
+If you only need specific implementations, you can select just the features you need:
+
+```toml
+# Only use the core implementation
+sieve-cache = { version = "1.0.0", default-features = false }
+
+# Only use the core and sync implementations
+sieve-cache = { version = "1.0.0", default-features = false, features = ["sync"] }
+
+# Only use the core and sharded implementations
+sieve-cache = { version = "1.0.0", default-features = false, features = ["sharded"] }
+
+# For documentation tests to work correctly
+sieve-cache = { version = "1.0.0", features = ["doctest"] }
+```
 
 ## Performance Considerations
 
