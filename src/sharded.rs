@@ -428,6 +428,181 @@ where
         None
     }
 
+    /// Removes all entries from the cache.
+    ///
+    /// This operation clears all stored values across all shards and resets the cache to an empty state,
+    /// while maintaining the original capacity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::ShardedSieveCache;
+    /// let cache: ShardedSieveCache<String, String> = ShardedSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// assert_eq!(cache.len(), 2);
+    ///
+    /// cache.clear();
+    /// assert_eq!(cache.len(), 0);
+    /// assert!(cache.is_empty());
+    /// ```
+    pub fn clear(&self) {
+        for shard in &self.shards {
+            let mut guard = shard.lock().unwrap_or_else(PoisonError::into_inner);
+            guard.clear();
+        }
+    }
+
+    /// Returns an iterator over all keys in the cache.
+    ///
+    /// The order of keys is not specified and should not be relied upon.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::ShardedSieveCache;
+    /// # use std::collections::HashSet;
+    /// let cache: ShardedSieveCache<String, String> = ShardedSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// let keys: HashSet<_> = cache.keys().into_iter().collect();
+    /// assert_eq!(keys.len(), 2);
+    /// assert!(keys.contains(&"key1".to_string()));
+    /// assert!(keys.contains(&"key2".to_string()));
+    /// ```
+    pub fn keys(&self) -> Vec<K> {
+        let mut all_keys = Vec::new();
+        for shard in &self.shards {
+            let guard = shard.lock().unwrap_or_else(PoisonError::into_inner);
+            all_keys.extend(guard.keys().cloned());
+        }
+        all_keys
+    }
+
+    /// Returns all values in the cache.
+    ///
+    /// The order of values is not specified and should not be relied upon.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::ShardedSieveCache;
+    /// # use std::collections::HashSet;
+    /// let cache: ShardedSieveCache<String, String> = ShardedSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// let values: HashSet<_> = cache.values().into_iter().collect();
+    /// assert_eq!(values.len(), 2);
+    /// assert!(values.contains(&"value1".to_string()));
+    /// assert!(values.contains(&"value2".to_string()));
+    /// ```
+    pub fn values(&self) -> Vec<V>
+    where
+        V: Clone,
+    {
+        let mut all_values = Vec::new();
+        for shard in &self.shards {
+            let guard = shard.lock().unwrap_or_else(PoisonError::into_inner);
+            all_values.extend(guard.values().cloned());
+        }
+        all_values
+    }
+
+    /// Returns all key-value pairs in the cache.
+    ///
+    /// The order of pairs is not specified and should not be relied upon.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::ShardedSieveCache;
+    /// # use std::collections::HashMap;
+    /// let cache: ShardedSieveCache<String, String> = ShardedSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// let entries: HashMap<_, _> = cache.entries().into_iter().collect();
+    /// assert_eq!(entries.len(), 2);
+    /// assert_eq!(entries.get(&"key1".to_string()), Some(&"value1".to_string()));
+    /// assert_eq!(entries.get(&"key2".to_string()), Some(&"value2".to_string()));
+    /// ```
+    pub fn entries(&self) -> Vec<(K, V)>
+    where
+        V: Clone,
+    {
+        let mut all_entries = Vec::new();
+        for shard in &self.shards {
+            let guard = shard.lock().unwrap_or_else(PoisonError::into_inner);
+            all_entries.extend(guard.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
+        all_entries
+    }
+
+    /// Applies a function to all values in the cache across all shards.
+    ///
+    /// This method marks all entries as visited.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::ShardedSieveCache;
+    /// let cache: ShardedSieveCache<String, String> = ShardedSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// // Update all values by appending text
+    /// cache.for_each_value(|value| {
+    ///     *value = format!("{}_updated", value);
+    /// });
+    ///
+    /// assert_eq!(cache.get(&"key1".to_string()), Some("value1_updated".to_string()));
+    /// assert_eq!(cache.get(&"key2".to_string()), Some("value2_updated".to_string()));
+    /// ```
+    pub fn for_each_value<F>(&self, mut f: F)
+    where
+        F: FnMut(&mut V),
+    {
+        for shard in &self.shards {
+            let mut guard = shard.lock().unwrap_or_else(PoisonError::into_inner);
+            guard.values_mut().for_each(&mut f);
+        }
+    }
+
+    /// Applies a function to all key-value pairs in the cache across all shards.
+    ///
+    /// This method marks all entries as visited.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::ShardedSieveCache;
+    /// let cache: ShardedSieveCache<String, String> = ShardedSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// // Update all values associated with keys containing '1'
+    /// cache.for_each_entry(|(key, value)| {
+    ///     if key.contains('1') {
+    ///         *value = format!("{}_special", value);
+    ///     }
+    /// });
+    ///
+    /// assert_eq!(cache.get(&"key1".to_string()), Some("value1_special".to_string()));
+    /// assert_eq!(cache.get(&"key2".to_string()), Some("value2".to_string()));
+    /// ```
+    pub fn for_each_entry<F>(&self, mut f: F)
+    where
+        F: FnMut((&K, &mut V)),
+    {
+        for shard in &self.shards {
+            let mut guard = shard.lock().unwrap_or_else(PoisonError::into_inner);
+            guard.iter_mut().for_each(|entry| f(entry));
+        }
+    }
+
     /// Gets exclusive access to a specific shard based on the key.
     ///
     /// This can be useful for performing multiple operations atomically on entries
@@ -707,6 +882,142 @@ mod tests {
         // Each key should have been incremented 500 times (5 threads * 100 increments each)
         for i in 0..10 {
             assert_eq!(cache.get(&format!("key{}", i)), Some(500));
+        }
+    }
+
+    #[test]
+    fn test_clear() {
+        let cache = ShardedSieveCache::with_shards(100, 4).unwrap();
+
+        // Add entries to various shards
+        for i in 0..20 {
+            cache.insert(format!("key{}", i), format!("value{}", i));
+        }
+
+        assert_eq!(cache.len(), 20);
+        assert!(!cache.is_empty());
+
+        // Clear all shards
+        cache.clear();
+
+        assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
+
+        // Verify entries are gone
+        for i in 0..20 {
+            assert_eq!(cache.get(&format!("key{}", i)), None);
+        }
+    }
+
+    #[test]
+    fn test_keys_values_entries() {
+        let cache = ShardedSieveCache::with_shards(100, 4).unwrap();
+
+        // Add entries to various shards
+        for i in 0..10 {
+            cache.insert(format!("key{}", i), format!("value{}", i));
+        }
+
+        // Test keys
+        let keys = cache.keys();
+        assert_eq!(keys.len(), 10);
+        for i in 0..10 {
+            assert!(keys.contains(&format!("key{}", i)));
+        }
+
+        // Test values
+        let values = cache.values();
+        assert_eq!(values.len(), 10);
+        for i in 0..10 {
+            assert!(values.contains(&format!("value{}", i)));
+        }
+
+        // Test entries
+        let entries = cache.entries();
+        assert_eq!(entries.len(), 10);
+        for i in 0..10 {
+            assert!(entries.contains(&(format!("key{}", i), format!("value{}", i))));
+        }
+    }
+
+    #[test]
+    fn test_for_each_operations() {
+        let cache = ShardedSieveCache::with_shards(100, 4).unwrap();
+
+        // Add entries to various shards
+        for i in 0..10 {
+            cache.insert(format!("key{}", i), format!("value{}", i));
+        }
+
+        // Test for_each_value
+        cache.for_each_value(|value| {
+            *value = format!("{}_updated", value);
+        });
+
+        for i in 0..10 {
+            assert_eq!(
+                cache.get(&format!("key{}", i)),
+                Some(format!("value{}_updated", i))
+            );
+        }
+
+        // Test for_each_entry
+        cache.for_each_entry(|(key, value)| {
+            if key.ends_with("5") {
+                *value = format!("{}_special", value);
+            }
+        });
+
+        assert_eq!(
+            cache.get(&"key5".to_string()),
+            Some("value5_updated_special".to_string())
+        );
+        assert_eq!(
+            cache.get(&"key1".to_string()),
+            Some("value1_updated".to_string())
+        );
+    }
+
+    #[test]
+    fn test_multithreaded_operations() {
+        let cache = Arc::new(ShardedSieveCache::with_shards(100, 8).unwrap());
+
+        // Fill the cache
+        for i in 0..20 {
+            cache.insert(format!("key{}", i), format!("value{}", i));
+        }
+
+        // Clear while concurrent accesses happen
+        let cache_clone = Arc::clone(&cache);
+        let handle = thread::spawn(move || {
+            // This thread tries to access the cache while main thread clears it
+            thread::sleep(Duration::from_millis(10));
+
+            for i in 0..20 {
+                let _ = cache_clone.get(&format!("key{}", i));
+                thread::sleep(Duration::from_micros(100));
+            }
+        });
+
+        // Main thread clears the cache
+        thread::sleep(Duration::from_millis(5));
+        cache.clear();
+
+        // Add new entries
+        for i in 30..40 {
+            cache.insert(format!("newkey{}", i), format!("newvalue{}", i));
+        }
+
+        // Wait for the thread to complete
+        handle.join().unwrap();
+
+        // Verify final state
+        assert_eq!(cache.len(), 10);
+        for i in 30..40 {
+            assert_eq!(
+                cache.get(&format!("newkey{}", i)),
+                Some(format!("newvalue{}", i))
+            );
         }
     }
 }

@@ -602,6 +602,181 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
             }
         }
     }
+
+    /// Removes all entries from the cache.
+    ///
+    /// This operation clears all stored values and resets the cache to an empty state,
+    /// while maintaining the original capacity.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
+    /// use sieve_cache::SieveCache;
+    ///
+    /// let mut cache = SieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// assert_eq!(cache.len(), 2);
+    ///
+    /// cache.clear();
+    /// assert_eq!(cache.len(), 0);
+    /// assert!(cache.is_empty());
+    /// # }
+    /// ```
+    pub fn clear(&mut self) {
+        self.map.clear();
+        self.head = None;
+        self.tail = None;
+        self.hand = None;
+        self.len = 0;
+    }
+
+    /// Returns an iterator over all keys in the cache.
+    ///
+    /// The order of keys is not specified and should not be relied upon.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
+    /// use sieve_cache::SieveCache;
+    /// use std::collections::HashSet;
+    ///
+    /// let mut cache = SieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// let keys: HashSet<_> = cache.keys().collect();
+    /// assert_eq!(keys.len(), 2);
+    /// assert!(keys.contains(&"key1".to_string()));
+    /// assert!(keys.contains(&"key2".to_string()));
+    /// # }
+    /// ```
+    pub fn keys(&self) -> impl Iterator<Item = &K> {
+        self.map.keys()
+    }
+
+    /// Returns an iterator over all values in the cache.
+    ///
+    /// The order of values is not specified and should not be relied upon.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
+    /// use sieve_cache::SieveCache;
+    /// use std::collections::HashSet;
+    ///
+    /// let mut cache = SieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// let values: HashSet<_> = cache.values().collect();
+    /// assert_eq!(values.len(), 2);
+    /// assert!(values.contains(&"value1".to_string()));
+    /// assert!(values.contains(&"value2".to_string()));
+    /// # }
+    /// ```
+    pub fn values(&self) -> impl Iterator<Item = &V> {
+        self.map.values().map(|node| &node.value)
+    }
+
+    /// Returns an iterator over all mutable values in the cache.
+    ///
+    /// The order of values is not specified and should not be relied upon.
+    /// Note that iterating through this will mark all entries as visited.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
+    /// use sieve_cache::SieveCache;
+    ///
+    /// let mut cache = SieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// // Update all values by appending text
+    /// for value in cache.values_mut() {
+    ///     *value = format!("{}_updated", value);
+    /// }
+    ///
+    /// assert_eq!(cache.get("key1"), Some(&"value1_updated".to_string()));
+    /// assert_eq!(cache.get("key2"), Some(&"value2_updated".to_string()));
+    /// # }
+    /// ```
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
+        self.map.values_mut().map(|node| {
+            node.visited = true;
+            &mut node.value
+        })
+    }
+
+    /// Returns an iterator over all key-value pairs in the cache.
+    ///
+    /// The order of pairs is not specified and should not be relied upon.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
+    /// use sieve_cache::SieveCache;
+    /// use std::collections::HashMap;
+    ///
+    /// let mut cache = SieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// let entries: HashMap<_, _> = cache.iter().collect();
+    /// assert_eq!(entries.len(), 2);
+    /// assert_eq!(entries.get(&"key1".to_string()), Some(&&"value1".to_string()));
+    /// assert_eq!(entries.get(&"key2".to_string()), Some(&&"value2".to_string()));
+    /// # }
+    /// ```
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+        self.map.iter().map(|(k, v)| (k, &v.value))
+    }
+
+    /// Returns an iterator over all key-value pairs in the cache, with mutable references to values.
+    ///
+    /// The order of pairs is not specified and should not be relied upon.
+    /// Note that iterating through this will mark all entries as visited.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
+    /// use sieve_cache::SieveCache;
+    ///
+    /// let mut cache = SieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// // Update all values associated with keys containing '1'
+    /// for (key, value) in cache.iter_mut() {
+    ///     if key.contains('1') {
+    ///         *value = format!("{}_special", value);
+    ///     }
+    /// }
+    ///
+    /// assert_eq!(cache.get("key1"), Some(&"value1_special".to_string()));
+    /// assert_eq!(cache.get("key2"), Some(&"value2".to_string()));
+    /// # }
+    /// ```
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&K, &mut V)> {
+        self.map.iter_mut().map(|(k, v)| {
+            v.visited = true;
+            (k, &mut v.value)
+        })
+    }
 }
 
 #[test]
@@ -628,4 +803,65 @@ fn test_visited_flag_update() {
     // new entry is added.
     cache.insert("key3".to_string(), "value3".to_string());
     assert_eq!(cache.get("key1"), Some(&"updated".to_string()));
+}
+
+#[test]
+fn test_clear() {
+    let mut cache = SieveCache::new(10).unwrap();
+    cache.insert("key1".to_string(), "value1".to_string());
+    cache.insert("key2".to_string(), "value2".to_string());
+
+    assert_eq!(cache.len(), 2);
+    assert!(!cache.is_empty());
+
+    cache.clear();
+
+    assert_eq!(cache.len(), 0);
+    assert!(cache.is_empty());
+    assert_eq!(cache.get("key1"), None);
+    assert_eq!(cache.get("key2"), None);
+}
+
+#[test]
+fn test_iterators() {
+    let mut cache = SieveCache::new(10).unwrap();
+    cache.insert("key1".to_string(), "value1".to_string());
+    cache.insert("key2".to_string(), "value2".to_string());
+
+    // Test keys iterator
+    let keys: Vec<&String> = cache.keys().collect();
+    assert_eq!(keys.len(), 2);
+    assert!(keys.contains(&&"key1".to_string()));
+    assert!(keys.contains(&&"key2".to_string()));
+
+    // Test values iterator
+    let values: Vec<&String> = cache.values().collect();
+    assert_eq!(values.len(), 2);
+    assert!(values.contains(&&"value1".to_string()));
+    assert!(values.contains(&&"value2".to_string()));
+
+    // Test values_mut iterator
+    for value in cache.values_mut() {
+        *value = format!("{}_updated", value);
+    }
+
+    assert_eq!(cache.get("key1"), Some(&"value1_updated".to_string()));
+    assert_eq!(cache.get("key2"), Some(&"value2_updated".to_string()));
+
+    // Test key-value iterator
+    let entries: Vec<(&String, &String)> = cache.iter().collect();
+    assert_eq!(entries.len(), 2);
+
+    // Test key-value mutable iterator
+    for (key, value) in cache.iter_mut() {
+        if key == "key1" {
+            *value = format!("{}_special", value);
+        }
+    }
+
+    assert_eq!(
+        cache.get("key1"),
+        Some(&"value1_updated_special".to_string())
+    );
+    assert_eq!(cache.get("key2"), Some(&"value2_updated".to_string()));
 }

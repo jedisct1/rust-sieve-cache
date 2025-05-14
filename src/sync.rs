@@ -276,6 +276,163 @@ where
         guard.evict()
     }
 
+    /// Removes all entries from the cache.
+    ///
+    /// This operation clears all stored values and resets the cache to an empty state,
+    /// while maintaining the original capacity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::SyncSieveCache;
+    /// let cache = SyncSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// assert_eq!(cache.len(), 2);
+    ///
+    /// cache.clear();
+    /// assert_eq!(cache.len(), 0);
+    /// assert!(cache.is_empty());
+    /// ```
+    pub fn clear(&self) {
+        let mut guard = self.locked_cache();
+        guard.clear();
+    }
+
+    /// Returns an iterator over all keys in the cache.
+    ///
+    /// The order of keys is not specified and should not be relied upon.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::SyncSieveCache;
+    /// # use std::collections::HashSet;
+    /// let cache = SyncSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// let keys: HashSet<_> = cache.keys().into_iter().collect();
+    /// assert_eq!(keys.len(), 2);
+    /// assert!(keys.contains(&"key1".to_string()));
+    /// assert!(keys.contains(&"key2".to_string()));
+    /// ```
+    pub fn keys(&self) -> Vec<K> {
+        let guard = self.locked_cache();
+        guard.keys().cloned().collect()
+    }
+
+    /// Returns all values in the cache.
+    ///
+    /// The order of values is not specified and should not be relied upon.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::SyncSieveCache;
+    /// # use std::collections::HashSet;
+    /// let cache = SyncSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// let values: HashSet<_> = cache.values().into_iter().collect();
+    /// assert_eq!(values.len(), 2);
+    /// assert!(values.contains(&"value1".to_string()));
+    /// assert!(values.contains(&"value2".to_string()));
+    /// ```
+    pub fn values(&self) -> Vec<V>
+    where
+        V: Clone,
+    {
+        let guard = self.locked_cache();
+        guard.values().cloned().collect()
+    }
+
+    /// Returns all key-value pairs in the cache.
+    ///
+    /// The order of pairs is not specified and should not be relied upon.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::SyncSieveCache;
+    /// # use std::collections::HashMap;
+    /// let cache = SyncSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// let entries: HashMap<_, _> = cache.entries().into_iter().collect();
+    /// assert_eq!(entries.len(), 2);
+    /// assert_eq!(entries.get(&"key1".to_string()), Some(&"value1".to_string()));
+    /// assert_eq!(entries.get(&"key2".to_string()), Some(&"value2".to_string()));
+    /// ```
+    pub fn entries(&self) -> Vec<(K, V)>
+    where
+        V: Clone,
+    {
+        let guard = self.locked_cache();
+        guard.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+    }
+
+    /// Applies a function to all values in the cache.
+    ///
+    /// This method marks all entries as visited.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::SyncSieveCache;
+    /// let cache = SyncSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// // Update all values by appending text
+    /// cache.for_each_value(|value| {
+    ///     *value = format!("{}_updated", value);
+    /// });
+    ///
+    /// assert_eq!(cache.get(&"key1".to_string()), Some("value1_updated".to_string()));
+    /// assert_eq!(cache.get(&"key2".to_string()), Some("value2_updated".to_string()));
+    /// ```
+    pub fn for_each_value<F>(&self, f: F)
+    where
+        F: FnMut(&mut V),
+    {
+        let mut guard = self.locked_cache();
+        guard.values_mut().for_each(f);
+    }
+
+    /// Applies a function to all key-value pairs in the cache.
+    ///
+    /// This method marks all entries as visited.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::SyncSieveCache;
+    /// let cache = SyncSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// // Update all values associated with keys containing '1'
+    /// cache.for_each_entry(|(key, value)| {
+    ///     if key.contains('1') {
+    ///         *value = format!("{}_special", value);
+    ///     }
+    /// });
+    ///
+    /// assert_eq!(cache.get(&"key1".to_string()), Some("value1_special".to_string()));
+    /// assert_eq!(cache.get(&"key2".to_string()), Some("value2".to_string()));
+    /// ```
+    pub fn for_each_entry<F>(&self, mut f: F)
+    where
+        F: FnMut((&K, &mut V)),
+    {
+        let mut guard = self.locked_cache();
+        guard.iter_mut().for_each(|entry| f(entry));
+    }
+
     /// Gets exclusive access to the underlying cache to perform multiple operations atomically.
     ///
     /// This is useful when you need to perform a series of operations that depend on each other
@@ -405,5 +562,84 @@ mod tests {
             panic!("This should not be called");
         });
         assert!(!modified);
+    }
+
+    #[test]
+    fn test_clear() {
+        let cache = SyncSieveCache::new(10).unwrap();
+        cache.insert("key1".to_string(), "value1".to_string());
+        cache.insert("key2".to_string(), "value2".to_string());
+
+        assert_eq!(cache.len(), 2);
+        assert!(!cache.is_empty());
+
+        cache.clear();
+
+        assert_eq!(cache.len(), 0);
+        assert!(cache.is_empty());
+        assert_eq!(cache.get(&"key1".to_string()), None);
+        assert_eq!(cache.get(&"key2".to_string()), None);
+    }
+
+    #[test]
+    fn test_keys_values_entries() {
+        let cache = SyncSieveCache::new(10).unwrap();
+        cache.insert("key1".to_string(), "value1".to_string());
+        cache.insert("key2".to_string(), "value2".to_string());
+
+        // Test keys
+        let keys = cache.keys();
+        assert_eq!(keys.len(), 2);
+        assert!(keys.contains(&"key1".to_string()));
+        assert!(keys.contains(&"key2".to_string()));
+
+        // Test values
+        let values = cache.values();
+        assert_eq!(values.len(), 2);
+        assert!(values.contains(&"value1".to_string()));
+        assert!(values.contains(&"value2".to_string()));
+
+        // Test entries
+        let entries = cache.entries();
+        assert_eq!(entries.len(), 2);
+        assert!(entries.contains(&("key1".to_string(), "value1".to_string())));
+        assert!(entries.contains(&("key2".to_string(), "value2".to_string())));
+    }
+
+    #[test]
+    fn test_for_each_methods() {
+        let cache = SyncSieveCache::new(10).unwrap();
+        cache.insert("key1".to_string(), "value1".to_string());
+        cache.insert("key2".to_string(), "value2".to_string());
+
+        // Test for_each_value
+        cache.for_each_value(|value| {
+            *value = format!("{}_updated", value);
+        });
+
+        assert_eq!(
+            cache.get(&"key1".to_string()),
+            Some("value1_updated".to_string())
+        );
+        assert_eq!(
+            cache.get(&"key2".to_string()),
+            Some("value2_updated".to_string())
+        );
+
+        // Test for_each_entry
+        cache.for_each_entry(|(key, value)| {
+            if key == "key1" {
+                *value = format!("{}_special", value);
+            }
+        });
+
+        assert_eq!(
+            cache.get(&"key1".to_string()),
+            Some("value1_updated_special".to_string())
+        );
+        assert_eq!(
+            cache.get(&"key2".to_string()),
+            Some("value2_updated".to_string())
+        );
     }
 }
