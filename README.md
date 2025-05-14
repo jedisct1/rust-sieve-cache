@@ -205,16 +205,16 @@ If you only need specific implementations, you can select just the features you 
 
 ```toml
 # Only use the core implementation
-sieve-cache = { version = "1.0.0", default-features = false }
+sieve-cache = { version = "1", default-features = false }
 
 # Only use the core and sync implementations
-sieve-cache = { version = "1.0.0", default-features = false, features = ["sync"] }
+sieve-cache = { version = "1", default-features = false, features = ["sync"] }
 
 # Only use the core and sharded implementations
-sieve-cache = { version = "1.0.0", default-features = false, features = ["sharded"] }
+sieve-cache = { version = "1", default-features = false, features = ["sharded"] }
 
 # For documentation tests to work correctly
-sieve-cache = { version = "1.0.0", features = ["doctest"] }
+sieve-cache = { version = "1", features = ["doctest"] }
 ```
 
 ## Performance Considerations

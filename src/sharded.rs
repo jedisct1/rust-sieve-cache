@@ -1,6 +1,7 @@
 use crate::SieveCache;
 use std::borrow::Borrow;
 use std::collections::hash_map::DefaultHasher;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -60,7 +61,114 @@ unsafe impl<K, V> Sync for ShardedSieveCache<K, V>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Send + Sync,
-{}
+{
+}
+
+impl<K, V> Default for ShardedSieveCache<K, V>
+where
+    K: Eq + Hash + Clone + Send + Sync,
+    V: Send + Sync,
+{
+    /// Creates a new sharded cache with a default capacity of 100 entries and default number of shards.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the underlying `ShardedSieveCache::new()` returns an error, which should never
+    /// happen for a non-zero capacity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::ShardedSieveCache;
+    /// # use std::default::Default;
+    /// let cache: ShardedSieveCache<String, u32> = Default::default();
+    /// assert!(cache.capacity() >= 100); // Due to shard distribution, might be slightly larger
+    /// assert_eq!(cache.num_shards(), 16); // Default shard count
+    /// ```
+    fn default() -> Self {
+        Self::new(100).expect("Failed to create cache with default capacity")
+    }
+}
+
+impl<K, V> fmt::Debug for ShardedSieveCache<K, V>
+where
+    K: Eq + Hash + Clone + Send + Sync + fmt::Debug,
+    V: Send + Sync + fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ShardedSieveCache")
+            .field("capacity", &self.capacity())
+            .field("len", &self.len())
+            .field("num_shards", &self.num_shards)
+            .finish()
+    }
+}
+
+impl<K, V> IntoIterator for ShardedSieveCache<K, V>
+where
+    K: Eq + Hash + Clone + Send + Sync,
+    V: Clone + Send + Sync,
+{
+    type Item = (K, V);
+    type IntoIter = std::vec::IntoIter<(K, V)>;
+
+    /// Converts the cache into an iterator over its key-value pairs.
+    ///
+    /// This collects all entries into a Vec and returns an iterator over that Vec.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::ShardedSieveCache;
+    /// # use std::collections::HashMap;
+    /// let cache = ShardedSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// // Collect into a HashMap
+    /// let map: HashMap<_, _> = cache.into_iter().collect();
+    /// assert_eq!(map.len(), 2);
+    /// assert_eq!(map.get("key1"), Some(&"value1".to_string()));
+    /// ```
+    fn into_iter(self) -> Self::IntoIter {
+        self.entries().into_iter()
+    }
+}
+
+#[cfg(feature = "sync")]
+impl<K, V> From<crate::SyncSieveCache<K, V>> for ShardedSieveCache<K, V>
+where
+    K: Eq + Hash + Clone + Send + Sync,
+    V: Clone + Send + Sync,
+{
+    /// Creates a new sharded cache from an existing `SyncSieveCache`.
+    ///
+    /// This allows for upgrading a standard thread-safe cache to a more scalable sharded version.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::{SyncSieveCache, ShardedSieveCache};
+    /// let sync_cache = SyncSieveCache::new(100).unwrap();
+    /// sync_cache.insert("key".to_string(), "value".to_string());
+    ///
+    /// // Convert to sharded version with default sharding
+    /// let sharded_cache = ShardedSieveCache::from(sync_cache);
+    /// assert_eq!(sharded_cache.get(&"key".to_string()), Some("value".to_string()));
+    /// ```
+    fn from(sync_cache: crate::SyncSieveCache<K, V>) -> Self {
+        // Create a new sharded cache with the same capacity
+        let capacity = sync_cache.capacity();
+        let sharded = Self::new(capacity).expect("Failed to create sharded cache");
+
+        // Transfer all entries
+        for (key, value) in sync_cache.entries() {
+            sharded.insert(key, value);
+        }
+
+        sharded
+    }
+}
 
 impl<K, V> ShardedSieveCache<K, V>
 where
@@ -605,7 +713,7 @@ where
     {
         for shard in &self.shards {
             let mut guard = shard.lock().unwrap_or_else(PoisonError::into_inner);
-            guard.iter_mut().for_each(|entry| f(entry));
+            guard.iter_mut().for_each(&mut f);
         }
     }
 

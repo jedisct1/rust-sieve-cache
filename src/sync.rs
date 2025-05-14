@@ -1,5 +1,6 @@
 use crate::SieveCache;
 use std::borrow::Borrow;
+use std::fmt;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -39,7 +40,105 @@ unsafe impl<K, V> Sync for SyncSieveCache<K, V>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Send + Sync,
-{}
+{
+}
+
+impl<K, V> Default for SyncSieveCache<K, V>
+where
+    K: Eq + Hash + Clone + Send + Sync,
+    V: Send + Sync,
+{
+    /// Creates a new cache with a default capacity of 100 entries.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the underlying `SieveCache::new()` returns an error, which should never
+    /// happen for a non-zero capacity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::SyncSieveCache;
+    /// # use std::default::Default;
+    /// let cache: SyncSieveCache<String, u32> = Default::default();
+    /// assert_eq!(cache.capacity(), 100);
+    /// ```
+    fn default() -> Self {
+        Self::new(100).expect("Failed to create cache with default capacity")
+    }
+}
+
+impl<K, V> fmt::Debug for SyncSieveCache<K, V>
+where
+    K: Eq + Hash + Clone + Send + Sync + fmt::Debug,
+    V: Send + Sync + fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let guard = self.locked_cache();
+        f.debug_struct("SyncSieveCache")
+            .field("capacity", &guard.capacity())
+            .field("len", &guard.len())
+            .finish()
+    }
+}
+
+impl<K, V> From<SieveCache<K, V>> for SyncSieveCache<K, V>
+where
+    K: Eq + Hash + Clone + Send + Sync,
+    V: Send + Sync,
+{
+    /// Creates a new thread-safe cache from an existing `SieveCache`.
+    ///
+    /// This allows for easily converting a single-threaded cache to a thread-safe version.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::{SieveCache, SyncSieveCache};
+    /// let mut single_threaded = SieveCache::new(100).unwrap();
+    /// single_threaded.insert("key".to_string(), "value".to_string());
+    ///
+    /// // Convert to thread-safe version
+    /// let thread_safe = SyncSieveCache::from(single_threaded);
+    /// assert_eq!(thread_safe.get(&"key".to_string()), Some("value".to_string()));
+    /// ```
+    fn from(cache: SieveCache<K, V>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(cache)),
+        }
+    }
+}
+
+impl<K, V> IntoIterator for SyncSieveCache<K, V>
+where
+    K: Eq + Hash + Clone + Send + Sync,
+    V: Clone + Send + Sync,
+{
+    type Item = (K, V);
+    type IntoIter = std::vec::IntoIter<(K, V)>;
+
+    /// Converts the cache into an iterator over its key-value pairs.
+    ///
+    /// This collects all entries into a Vec and returns an iterator over that Vec.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::SyncSieveCache;
+    /// # use std::collections::HashMap;
+    /// let cache = SyncSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), "value1".to_string());
+    /// cache.insert("key2".to_string(), "value2".to_string());
+    ///
+    /// // Collect into a HashMap
+    /// let map: HashMap<_, _> = cache.into_iter().collect();
+    /// assert_eq!(map.len(), 2);
+    /// assert_eq!(map.get("key1"), Some(&"value1".to_string()));
+    /// ```
+    fn into_iter(self) -> Self::IntoIter {
+        self.entries().into_iter()
+    }
+}
 
 impl<K, V> SyncSieveCache<K, V>
 where
@@ -431,12 +530,12 @@ where
     /// assert_eq!(cache.get(&"key1".to_string()), Some("value1_special".to_string()));
     /// assert_eq!(cache.get(&"key2".to_string()), Some("value2".to_string()));
     /// ```
-    pub fn for_each_entry<F>(&self, mut f: F)
+    pub fn for_each_entry<F>(&self, f: F)
     where
         F: FnMut((&K, &mut V)),
     {
         let mut guard = self.locked_cache();
-        guard.iter_mut().for_each(|entry| f(entry));
+        guard.iter_mut().for_each(f);
     }
 
     /// Gets exclusive access to the underlying cache to perform multiple operations atomically.
