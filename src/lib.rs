@@ -777,6 +777,51 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
             (k, &mut v.value)
         })
     }
+
+    /// Retains only the elements specified by the predicate.
+    ///
+    /// Removes all entries for which the provided function returns `false`.
+    /// The elements are visited in arbitrary, unspecified order.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
+    /// use sieve_cache::SieveCache;
+    ///
+    /// let mut cache = SieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), 100);
+    /// cache.insert("key2".to_string(), 200);
+    /// cache.insert("key3".to_string(), 300);
+    ///
+    /// // Keep only entries with values greater than 150
+    /// cache.retain(|_, value| *value > 150);
+    ///
+    /// assert_eq!(cache.len(), 2);
+    /// assert!(!cache.contains_key("key1"));
+    /// assert!(cache.contains_key("key2"));
+    /// assert!(cache.contains_key("key3"));
+    /// # }
+    /// ```
+    pub fn retain<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&K, &V) -> bool,
+    {
+        // Collect keys that we want to remove
+        let mut to_remove = Vec::new();
+
+        for (k, node) in &self.map {
+            if !f(k, &node.value) {
+                to_remove.push(k.clone());
+            }
+        }
+
+        // Remove each entry that didn't match the predicate
+        for k in to_remove {
+            self.remove(&k);
+        }
+    }
 }
 
 #[test]
@@ -864,4 +909,33 @@ fn test_iterators() {
         Some(&"value1_updated_special".to_string())
     );
     assert_eq!(cache.get("key2"), Some(&"value2_updated".to_string()));
+}
+
+#[test]
+fn test_retain() {
+    let mut cache = SieveCache::new(10).unwrap();
+
+    // Add some entries
+    cache.insert("even1".to_string(), 2);
+    cache.insert("even2".to_string(), 4);
+    cache.insert("odd1".to_string(), 1);
+    cache.insert("odd2".to_string(), 3);
+
+    assert_eq!(cache.len(), 4);
+
+    // Keep only entries with even values
+    cache.retain(|_, v| v % 2 == 0);
+
+    assert_eq!(cache.len(), 2);
+    assert!(cache.contains_key("even1"));
+    assert!(cache.contains_key("even2"));
+    assert!(!cache.contains_key("odd1"));
+    assert!(!cache.contains_key("odd2"));
+
+    // Keep only entries with keys containing '1'
+    cache.retain(|k, _| k.contains('1'));
+
+    assert_eq!(cache.len(), 1);
+    assert!(cache.contains_key("even1"));
+    assert!(!cache.contains_key("even2"));
 }

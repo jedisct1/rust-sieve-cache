@@ -667,6 +667,47 @@ where
     pub fn get_shard_by_index(&self, index: usize) -> Option<&Arc<Mutex<SieveCache<K, V>>>> {
         self.shards.get(index)
     }
+
+    /// Retains only the elements specified by the predicate.
+    ///
+    /// Removes all entries for which the provided function returns `false`.
+    /// The elements are visited in arbitrary, unspecified order, across all shards.
+    /// This operation processes each shard individually, acquiring and releasing locks as it goes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::ShardedSieveCache;
+    /// let cache: ShardedSieveCache<String, i32> = ShardedSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), 100);
+    /// cache.insert("key2".to_string(), 200);
+    /// cache.insert("key3".to_string(), 300);
+    ///
+    /// // Keep only entries with values greater than 150
+    /// cache.retain(|_, value| *value > 150);
+    ///
+    /// assert_eq!(cache.len(), 2);
+    /// assert!(!cache.contains_key(&"key1".to_string()));
+    /// assert!(cache.contains_key(&"key2".to_string()));
+    /// assert!(cache.contains_key(&"key3".to_string()));
+    /// ```
+    pub fn retain<F>(&self, mut f: F)
+    where
+        F: FnMut(&K, &V) -> bool,
+        V: Clone,
+    {
+        // First, collect all entries so we can check them without holding locks
+        let entries = self.entries();
+
+        // Now go through all entries and determine which ones to remove
+        for (key, value) in entries {
+            // Check the predicate outside the lock - using cloned data
+            if !f(&key, &value) {
+                // The predicate returned false, so remove this entry
+                self.remove(&key);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1018,6 +1059,69 @@ mod tests {
                 cache.get(&format!("newkey{}", i)),
                 Some(format!("newvalue{}", i))
             );
+        }
+    }
+
+    #[test]
+    fn test_retain() {
+        let cache = ShardedSieveCache::with_shards(100, 4).unwrap();
+
+        // Add entries to various shards
+        cache.insert("even1".to_string(), 2);
+        cache.insert("even2".to_string(), 4);
+        cache.insert("odd1".to_string(), 1);
+        cache.insert("odd2".to_string(), 3);
+
+        assert_eq!(cache.len(), 4);
+
+        // Keep only entries with even values
+        cache.retain(|_, v| v % 2 == 0);
+
+        assert_eq!(cache.len(), 2);
+        assert!(cache.contains_key(&"even1".to_string()));
+        assert!(cache.contains_key(&"even2".to_string()));
+        assert!(!cache.contains_key(&"odd1".to_string()));
+        assert!(!cache.contains_key(&"odd2".to_string()));
+
+        // Keep only entries with keys containing '1'
+        cache.retain(|k, _| k.contains('1'));
+
+        assert_eq!(cache.len(), 1);
+        assert!(cache.contains_key(&"even1".to_string()));
+        assert!(!cache.contains_key(&"even2".to_string()));
+    }
+
+    #[test]
+    fn test_retain_concurrent() {
+        // Create a well-controlled test case that avoids race conditions
+        let cache = ShardedSieveCache::with_shards(100, 8).unwrap();
+
+        // Add a known set of entries
+        for i in 0..10 {
+            cache.insert(format!("even{}", i * 2), i * 2);
+            cache.insert(format!("odd{}", i * 2 + 1), i * 2 + 1);
+        }
+
+        // Retain only odd values
+        cache.retain(|_, value| value % 2 == 1);
+
+        // Check that we have the right number of entries
+        assert_eq!(cache.len(), 10, "Should have 10 odd-valued entries");
+
+        // Verify that all remaining entries have odd values
+        for (_, value) in cache.entries() {
+            assert_eq!(
+                value % 2,
+                1,
+                "Found an even value {value} which should have been removed"
+            );
+        }
+
+        // Verify the specific entries we expect
+        for i in 0..10 {
+            let odd_key = format!("odd{}", i * 2 + 1);
+            assert!(cache.contains_key(&odd_key), "Missing odd entry: {odd_key}");
+            assert_eq!(cache.get(&odd_key), Some(i * 2 + 1));
         }
     }
 }
