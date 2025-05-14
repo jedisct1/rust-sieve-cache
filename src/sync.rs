@@ -163,6 +163,43 @@ where
         guard.get(key).cloned()
     }
 
+    /// Gets a mutable reference to the value in the cache mapped to by `key` via a callback function.
+    ///
+    /// If no value exists for `key`, the callback will not be invoked and this returns `false`.
+    /// Otherwise, the callback is invoked with a mutable reference to the value and this returns `true`.
+    ///
+    /// This operation marks the entry as "visited" in the SIEVE algorithm,
+    /// which affects eviction decisions.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::SyncSieveCache;
+    /// let cache = SyncSieveCache::new(100).unwrap();
+    /// cache.insert("key".to_string(), "value".to_string());
+    ///
+    /// // Modify the value in-place
+    /// cache.get_mut(&"key".to_string(), |value| {
+    ///     *value = "new_value".to_string();
+    /// });
+    ///
+    /// assert_eq!(cache.get(&"key".to_string()), Some("new_value".to_string()));
+    /// ```
+    pub fn get_mut<Q, F>(&self, key: &Q, f: F) -> bool
+    where
+        Q: Hash + Eq + ?Sized,
+        K: Borrow<Q>,
+        F: FnOnce(&mut V),
+    {
+        let mut guard = self.locked_cache();
+        if let Some(value) = guard.get_mut(key) {
+            f(value);
+            true
+        } else {
+            false
+        }
+    }
+
     /// Maps `key` to `value` in the cache, possibly evicting old entries.
     ///
     /// This method returns `true` when this is a new entry, and `false` if an existing entry was
@@ -347,5 +384,26 @@ mod tests {
         });
 
         assert_eq!(cache.len(), 3);
+    }
+
+    #[test]
+    fn test_get_mut() {
+        let cache = SyncSieveCache::new(100).unwrap();
+        cache.insert("key".to_string(), "value".to_string());
+
+        // Modify the value in-place
+        let modified = cache.get_mut(&"key".to_string(), |value| {
+            *value = "new_value".to_string();
+        });
+        assert!(modified);
+
+        // Verify the value was updated
+        assert_eq!(cache.get(&"key".to_string()), Some("new_value".to_string()));
+
+        // Try to modify a non-existent key
+        let modified = cache.get_mut(&"missing".to_string(), |_| {
+            panic!("This should not be called");
+        });
+        assert!(!modified);
     }
 }
