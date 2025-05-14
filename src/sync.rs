@@ -35,6 +35,12 @@ where
     inner: Arc<Mutex<SieveCache<K, V>>>,
 }
 
+unsafe impl<K, V> Sync for SyncSieveCache<K, V>
+where
+    K: Eq + Hash + Clone + Send + Sync,
+    V: Send + Sync,
+{}
+
 impl<K, V> SyncSieveCache<K, V>
 where
     K: Eq + Hash + Clone + Send + Sync,

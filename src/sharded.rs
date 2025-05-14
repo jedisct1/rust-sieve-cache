@@ -56,6 +56,12 @@ where
     num_shards: usize,
 }
 
+unsafe impl<K, V> Sync for ShardedSieveCache<K, V>
+where
+    K: Eq + Hash + Clone + Send + Sync,
+    V: Send + Sync,
+{}
+
 impl<K, V> ShardedSieveCache<K, V>
 where
     K: Eq + Hash + Clone + Send + Sync,
