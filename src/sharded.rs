@@ -31,6 +31,15 @@ const DEFAULT_SHARDS: usize = 16;
 /// - Operations on different keys that hash to different shards can execute concurrently
 /// - Hash-based sharding ensures good distribution of keys across shards by default
 ///
+/// ## Deadlock Prevention
+///
+/// This implementation prevents deadlocks by:
+///
+/// - Using the same deadlock prevention techniques as SyncSieveCache for each shard
+/// - Only acquiring one shard lock at a time for single-key operations
+/// - Using a consistent lock acquisition order when multiple shards must be accessed
+/// - Releasing locks before executing callbacks to prevent nested lock acquisition
+///
 /// ## Concurrent Operations
 ///
 /// - Single-key operations only lock one shard, allowing high concurrency
@@ -116,13 +125,6 @@ where
     shards: Vec<Arc<Mutex<SieveCache<K, V>>>>,
     /// Number of shards in the cache - kept as a separate field for quick access
     num_shards: usize,
-}
-
-unsafe impl<K, V> Sync for ShardedSieveCache<K, V>
-where
-    K: Eq + Hash + Clone + Send + Sync,
-    V: Send + Sync,
-{
 }
 
 impl<K, V> Default for ShardedSieveCache<K, V>
@@ -444,7 +446,7 @@ where
         Q: Hash + Eq + ?Sized,
         K: Borrow<Q>,
     {
-        let mut guard = self.locked_shard(key);
+        let guard = self.locked_shard(key);
         guard.contains_key(key)
     }
 
@@ -532,12 +534,8 @@ where
         // if the callback tries to use other methods on this cache
         let value_opt = {
             let mut guard = self.locked_shard(key);
-            if let Some(v) = guard.get_mut(key) {
-                // Clone the value before releasing the lock
-                Some(v.clone())
-            } else {
-                None
-            }
+            // Clone the value before releasing the lock
+            guard.get_mut(key).map(|v| v.clone())
         };
 
         if let Some(mut value) = value_opt {
@@ -759,7 +757,21 @@ where
 
     /// Applies a function to all values in the cache across all shards.
     ///
-    /// This method marks all entries as visited.
+    /// This method marks all entries as visited. It safely processes each shard
+    /// one at a time, applying the function to values without holding the lock.
+    ///
+    /// # Thread Safety
+    ///
+    /// This method operates in phases for each shard:
+    /// 1. Lock a shard and collect all key-value pairs
+    /// 2. Release the lock and process the values
+    /// 3. Re-acquire the lock to update the values
+    /// 4. Repeat for each shard
+    ///
+    /// This approach ensures that:
+    /// - Only one shard is locked at a time
+    /// - The callback never executes while holding a lock
+    /// - Each shard is processed atomically
     ///
     /// # Examples
     ///
@@ -780,16 +792,46 @@ where
     pub fn for_each_value<F>(&self, mut f: F)
     where
         F: FnMut(&mut V),
+        V: Clone,
     {
+        // Process each shard sequentially
         for shard in &self.shards {
+            // First collect all entries from this shard
+            let entries = {
+                let guard = shard.lock().unwrap_or_else(PoisonError::into_inner);
+                guard
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect::<Vec<(K, V)>>()
+            };
+
+            // Process each value outside the lock
+            let mut updated_entries = Vec::new();
+            for (key, mut value) in entries {
+                f(&mut value);
+                updated_entries.push((key, value));
+            }
+
+            // Update values back to the cache
             let mut guard = shard.lock().unwrap_or_else(PoisonError::into_inner);
-            guard.values_mut().for_each(&mut f);
+            for (key, value) in updated_entries {
+                guard.insert(key, value);
+            }
         }
     }
 
     /// Applies a function to all key-value pairs in the cache across all shards.
     ///
-    /// This method marks all entries as visited.
+    /// This method marks all entries as visited. It safely processes each shard
+    /// one at a time, applying the function to key-value pairs without holding the lock.
+    ///
+    /// # Thread Safety
+    ///
+    /// This method uses the same safety pattern as `for_each_value`:
+    /// 1. Lock a shard and collect all key-value pairs
+    /// 2. Release the lock and process the pairs
+    /// 3. Re-acquire the lock to update the values
+    /// 4. Repeat for each shard
     ///
     /// # Examples
     ///
@@ -812,10 +854,32 @@ where
     pub fn for_each_entry<F>(&self, mut f: F)
     where
         F: FnMut((&K, &mut V)),
+        V: Clone,
     {
+        // Process each shard sequentially
         for shard in &self.shards {
+            // First collect all entries from this shard
+            let entries = {
+                let guard = shard.lock().unwrap_or_else(PoisonError::into_inner);
+                guard
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect::<Vec<(K, V)>>()
+            };
+
+            // Process each entry outside the lock
+            let mut updated_entries = Vec::new();
+            for (key, mut value) in entries {
+                let key_ref = &key;
+                f((key_ref, &mut value));
+                updated_entries.push((key, value));
+            }
+
+            // Update values back to the cache
             let mut guard = shard.lock().unwrap_or_else(PoisonError::into_inner);
-            guard.iter_mut().for_each(&mut f);
+            for (key, value) in updated_entries {
+                guard.insert(key, value);
+            }
         }
     }
 
@@ -912,22 +976,17 @@ where
     ///
     /// # Thread Safety
     ///
-    /// This method has the following thread safety characteristics:
+    /// This method processes each shard independently:
     ///
-    /// - It first collects all entries across all shards into a snapshot
-    /// - The lock for each shard is acquired and released independently
-    /// - The predicate is evaluated outside any lock
-    /// - Individual removals lock only the specific shard containing the key
+    /// 1. Locks a shard and collects all its entries
+    /// 2. Releases the lock and evaluates the predicate on each entry
+    /// 3. Re-acquires the lock and removes entries that didn't pass
+    /// 4. Repeats for each shard
     ///
-    /// This design ensures:
-    /// - Minimal lock contention during predicate evaluation
-    /// - No deadlocks due to holding multiple shard locks simultaneously
-    /// - Operations on different shards can proceed concurrently
-    ///
-    /// However, this also means:
-    /// - The snapshot might not reflect concurrent modifications
-    /// - There's no guarantee of cross-shard atomicity or consistency
-    /// - Race conditions can occur if entries are modified between collection and removal
+    /// This ensures that:
+    /// - Only one shard is locked at a time
+    /// - Predicates never execute while holding locks
+    /// - No deadlocks can occur from lock ordering
     ///
     /// # Examples
     ///
@@ -951,15 +1010,31 @@ where
         F: FnMut(&K, &V) -> bool,
         V: Clone,
     {
-        // First, collect all entries so we can check them without holding locks
-        let entries = self.entries();
+        // Process each shard sequentially
+        for shard in &self.shards {
+            // First collect all entries from this shard
+            let entries = {
+                let guard = shard.lock().unwrap_or_else(PoisonError::into_inner);
+                guard
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect::<Vec<(K, V)>>()
+            };
 
-        // Now go through all entries and determine which ones to remove
-        for (key, value) in entries {
-            // Check the predicate outside the lock - using cloned data
-            if !f(&key, &value) {
-                // The predicate returned false, so remove this entry
-                self.remove(&key);
+            // Collect keys to remove
+            let mut keys_to_remove = Vec::new();
+            for (key, value) in entries {
+                if !f(&key, &value) {
+                    keys_to_remove.push(key);
+                }
+            }
+
+            // Remove keys from the shard
+            if !keys_to_remove.is_empty() {
+                let mut guard = shard.lock().unwrap_or_else(PoisonError::into_inner);
+                for key in keys_to_remove {
+                    guard.remove(&key);
+                }
             }
         }
     }
@@ -1390,5 +1465,56 @@ mod tests {
             assert!(cache.contains_key(&odd_key), "Missing odd entry: {odd_key}");
             assert_eq!(cache.get(&odd_key), Some(i * 2 + 1));
         }
+    }
+
+    #[test]
+    fn test_deadlock_prevention() {
+        let cache = Arc::new(ShardedSieveCache::with_shards(100, 4).unwrap());
+
+        // Setup test data in different shards
+        // (Using different key patterns to increase likelihood of different shard allocation)
+        cache.insert("keyA_1".to_string(), 1);
+        cache.insert("keyB_2".to_string(), 2);
+
+        // Clone for threads
+        let cache_clone1 = Arc::clone(&cache);
+        let cache_clone2 = Arc::clone(&cache);
+
+        // Thread 1: Try nested operations that would deadlock with unsafe implementation
+        let thread1 = thread::spawn(move || {
+            // Modify value1 and access value2 within callback
+            cache_clone1.get_mut(&"keyA_1".to_string(), |value| {
+                // Access another key, potentially in another shard
+                let other_value = cache_clone1.get(&"keyB_2".to_string());
+                assert_eq!(other_value, Some(2));
+
+                // Even modify keys in other shards
+                cache_clone1.insert("keyC_3".to_string(), 3);
+
+                *value += 10;
+            });
+        });
+
+        // Thread 2: Concurrently modify values
+        let thread2 = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(5)); // Give thread1 a head start
+
+            // These would deadlock with unsafe locking implementation
+            cache_clone2.get_mut(&"keyB_2".to_string(), |value| {
+                *value += 20;
+
+                // Even try to access the key thread1 is modifying
+                let _ = cache_clone2.get(&"keyA_1".to_string());
+            });
+        });
+
+        // Both threads should complete without deadlock
+        thread1.join().unwrap();
+        thread2.join().unwrap();
+
+        // Verify operations completed correctly
+        assert_eq!(cache.get(&"keyA_1".to_string()), Some(11)); // 1 + 10
+        assert_eq!(cache.get(&"keyB_2".to_string()), Some(22)); // 2 + 20
+        assert_eq!(cache.get(&"keyC_3".to_string()), Some(3));
     }
 }

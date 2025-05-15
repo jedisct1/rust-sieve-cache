@@ -25,19 +25,26 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 ///   read and clone the value
 /// - Modification operations (e.g., `insert`, `remove`) hold the lock for the duration of the change
 /// - Operations that accept callbacks have specific lock behavior:
-///   - `get_mut` holds the lock while executing the callback, which may lead to contention
-///     with long-running callbacks
+///   - `get_mut` acquires and releases the lock repeatedly to avoid deadlocks, using a clone-modify-update pattern
 ///   - `for_each_value`, `for_each_entry`, and `retain` collect data under the lock, then
-///     release it before processing to avoid blocking other threads, meaning they operate
-///     on a snapshot and may miss concurrent modifications
+///     release it before processing to avoid blocking other threads
+///
+/// ## Deadlock Prevention
+///
+/// This implementation prevents deadlocks by:
+///
+/// - Never allowing callbacks to execute while holding the cache lock
+/// - Using a clone-modify-update pattern for all callbacks that need to modify values
+/// - Ensuring lock acquisition is always done in a consistent order
+/// - Providing explicit transaction methods that make locking transparent to the user
 ///
 /// ## Consistency Guarantees
 ///
 /// - Operations on individual keys are atomic and isolated
 /// - Snapshot-based operations (e.g., iteration, bulk operations) may not reflect
 ///   concurrent modifications
-/// - When using callback functions, beware of causing deadlocks by acquiring other locks
-///   or making recursive calls to the same cache
+/// - When using callback functions, be aware they execute outside the lock which means
+///   the cache state may change between lock acquisitions
 ///
 /// # Examples
 ///
@@ -84,13 +91,6 @@ where
     V: Send + Sync,
 {
     inner: Arc<Mutex<SieveCache<K, V>>>,
-}
-
-unsafe impl<K, V> Sync for SyncSieveCache<K, V>
-where
-    K: Eq + Hash + Clone + Send + Sync,
-    V: Send + Sync,
-{
 }
 
 impl<K, V> Default for SyncSieveCache<K, V>
@@ -284,7 +284,7 @@ where
         Q: Hash + Eq + ?Sized,
         K: Borrow<Q>,
     {
-        let mut guard = self.locked_cache();
+        let guard = self.locked_cache();
         guard.contains_key(key)
     }
 
@@ -366,12 +366,8 @@ where
         // if the callback tries to use other methods on this cache
         let value_opt = {
             let mut guard = self.locked_cache();
-            if let Some(v) = guard.get_mut(key) {
-                // Clone the value before releasing the lock
-                Some(v.clone())
-            } else {
-                None
-            }
+            // Clone the value before releasing the lock
+            guard.get_mut(key).map(|v| v.clone())
         };
 
         if let Some(mut value) = value_opt {
@@ -1099,5 +1095,52 @@ mod tests {
         assert_eq!(cache.len(), 1);
         assert!(cache.contains_key(&"even1".to_string()));
         assert!(!cache.contains_key(&"even2".to_string()));
+    }
+
+    #[test]
+    fn test_deadlock_prevention() {
+        let cache = Arc::new(SyncSieveCache::new(100).unwrap());
+
+        // Add some initial data
+        cache.insert("key1".to_string(), 1);
+        cache.insert("key2".to_string(), 2);
+
+        // Clone for use in threads
+        let cache_clone1 = cache.clone();
+        let cache_clone2 = cache.clone();
+
+        // Thread 1: Recursively accesses the cache within get_mut callback
+        let thread1 = thread::spawn(move || {
+            cache_clone1.get_mut(&"key1".to_string(), |value| {
+                // This would deadlock with an unsafe implementation!
+                // Attempt to get another value while holding the lock
+                let value2 = cache_clone1.get(&"key2".to_string());
+                assert_eq!(value2, Some(2));
+
+                // Even modify another value
+                cache_clone1.insert("key3".to_string(), 3);
+
+                *value += 10;
+            });
+        });
+
+        // Thread 2: Also performs operations that would deadlock with unsafe impl
+        let thread2 = thread::spawn(move || {
+            // Sleep to ensure thread1 starts first
+            thread::sleep(std::time::Duration::from_millis(10));
+
+            // These operations would deadlock if thread1 held a lock during its callback
+            cache_clone2.insert("key4".to_string(), 4);
+            assert_eq!(cache_clone2.get(&"key2".to_string()), Some(2));
+        });
+
+        // Both threads should complete without deadlock
+        thread1.join().unwrap();
+        thread2.join().unwrap();
+
+        // Verify final state
+        assert_eq!(cache.get(&"key1".to_string()), Some(11)); // 1 + 10
+        assert_eq!(cache.get(&"key3".to_string()), Some(3));
+        assert_eq!(cache.get(&"key4".to_string()), Some(4));
     }
 }
