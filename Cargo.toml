@@ -1,6 +1,6 @@
 [package]
 name = "sieve-cache"
-version = "1.1.1"
+version = "1.1.2"
 edition = "2021"
 description = "SIEVE cache replacement policy with thread-safe wrappers"
 homepage = "https://github.com/jedisct1/rust-sieve-cache"
