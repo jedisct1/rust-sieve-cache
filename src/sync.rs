@@ -482,7 +482,9 @@ where
 
     /// Applies a function to all values in the cache.
     ///
-    /// This method marks all entries as visited.
+    /// This method safely processes values by collecting them with the lock held,
+    /// then releasing the lock before applying the function to each value individually.
+    /// If the function modifies the values, the changes are saved back to the cache.
     ///
     /// # Examples
     ///
@@ -500,17 +502,37 @@ where
     /// assert_eq!(cache.get(&"key1".to_string()), Some("value1_updated".to_string()));
     /// assert_eq!(cache.get(&"key2".to_string()), Some("value2_updated".to_string()));
     /// ```
-    pub fn for_each_value<F>(&self, f: F)
+    pub fn for_each_value<F>(&self, mut f: F)
     where
         F: FnMut(&mut V),
+        V: Clone,
     {
-        let mut guard = self.locked_cache();
-        guard.values_mut().for_each(f);
+        // First, safely collect all keys and values while holding the lock
+        let entries = self.with_lock(|inner_cache| {
+            inner_cache
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<Vec<(K, V)>>()
+        });
+
+        // Process each value outside the lock
+        let mut updated_entries = Vec::new();
+        for (key, mut value) in entries {
+            f(&mut value);
+            updated_entries.push((key, value));
+        }
+
+        // Update any changed values back to the cache
+        for (key, value) in updated_entries {
+            self.insert(key, value);
+        }
     }
 
     /// Applies a function to all key-value pairs in the cache.
     ///
-    /// This method marks all entries as visited.
+    /// This method safely processes key-value pairs by collecting them with the lock held,
+    /// then releasing the lock before applying the function to each pair individually.
+    /// If the function modifies the values, the changes are saved back to the cache.
     ///
     /// # Examples
     ///
@@ -530,12 +552,31 @@ where
     /// assert_eq!(cache.get(&"key1".to_string()), Some("value1_special".to_string()));
     /// assert_eq!(cache.get(&"key2".to_string()), Some("value2".to_string()));
     /// ```
-    pub fn for_each_entry<F>(&self, f: F)
+    pub fn for_each_entry<F>(&self, mut f: F)
     where
         F: FnMut((&K, &mut V)),
+        V: Clone,
     {
-        let mut guard = self.locked_cache();
-        guard.iter_mut().for_each(f);
+        // First, safely collect all keys and values while holding the lock
+        let entries = self.with_lock(|inner_cache| {
+            inner_cache
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<Vec<(K, V)>>()
+        });
+
+        // Process each entry outside the lock
+        let mut updated_entries = Vec::new();
+        for (key, mut value) in entries {
+            let key_ref = &key;
+            f((key_ref, &mut value));
+            updated_entries.push((key, value));
+        }
+
+        // Update any changed values back to the cache
+        for (key, value) in updated_entries {
+            self.insert(key, value);
+        }
     }
 
     /// Gets exclusive access to the underlying cache to perform multiple operations atomically.
@@ -570,7 +611,9 @@ where
     ///
     /// Removes all entries for which the provided function returns `false`.
     /// The elements are visited in arbitrary, unspecified order.
-    /// This operation acquires a lock on the entire cache.
+    /// This operation first collects entries while holding the lock, then evaluates
+    /// the predicate on those entries outside the lock, and finally acquires the lock
+    /// again only for each removal operation.
     ///
     /// # Examples
     ///
@@ -589,12 +632,27 @@ where
     /// assert!(cache.contains_key(&"key2".to_string()));
     /// assert!(cache.contains_key(&"key3".to_string()));
     /// ```
-    pub fn retain<F>(&self, f: F)
+    pub fn retain<F>(&self, mut f: F)
     where
         F: FnMut(&K, &V) -> bool,
+        V: Clone,
     {
-        let mut guard = self.locked_cache();
-        guard.retain(f);
+        // First, safely collect all entries while holding the lock
+        let entries = self.with_lock(|inner_cache| {
+            inner_cache
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<Vec<(K, V)>>()
+        });
+
+        // Now check each entry against the predicate without holding the lock
+        for (key, value) in entries {
+            if !f(&key, &value) {
+                // Remove entries that don't match the predicate
+                // This acquires the lock for each removal operation
+                self.remove(&key);
+            }
+        }
     }
 }
 
