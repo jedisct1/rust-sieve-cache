@@ -17,6 +17,28 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 /// consider using [`ShardedSieveCache`](crate::ShardedSieveCache) instead, which partitions
 /// the cache into multiple independently-locked segments.
 ///
+/// ## Lock Behavior
+///
+/// The thread safety mechanism works as follows:
+///
+/// - Simple query operations (e.g., `get`, `contains_key`) hold the lock only long enough to
+///   read and clone the value
+/// - Modification operations (e.g., `insert`, `remove`) hold the lock for the duration of the change
+/// - Operations that accept callbacks have specific lock behavior:
+///   - `get_mut` holds the lock while executing the callback, which may lead to contention
+///     with long-running callbacks
+///   - `for_each_value`, `for_each_entry`, and `retain` collect data under the lock, then
+///     release it before processing to avoid blocking other threads, meaning they operate
+///     on a snapshot and may miss concurrent modifications
+///
+/// ## Consistency Guarantees
+///
+/// - Operations on individual keys are atomic and isolated
+/// - Snapshot-based operations (e.g., iteration, bulk operations) may not reflect
+///   concurrent modifications
+/// - When using callback functions, beware of causing deadlocks by acquiring other locks
+///   or making recursive calls to the same cache
+///
 /// # Examples
 ///
 /// ```
@@ -26,6 +48,34 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 /// // Multiple threads can safely access the cache
 /// cache.insert("key1".to_string(), "value1".to_string());
 /// assert_eq!(cache.get(&"key1".to_string()), Some("value1".to_string()));
+/// ```
+///
+/// Example with callbacks:
+///
+/// ```
+/// # use sieve_cache::SyncSieveCache;
+/// # use std::thread;
+/// let cache = SyncSieveCache::new(100).unwrap();
+/// cache.insert("key1".to_string(), 1);
+/// cache.insert("key2".to_string(), 2);
+///
+/// // Create a clone to move into another thread
+/// let cache_clone = cache.clone();
+///
+/// // Spawn a thread that modifies values
+/// let handle = thread::spawn(move || {
+///     // The cache is safely accessible from multiple threads
+///     cache_clone.for_each_value(|value| {
+///         *value += 10;  // Add 10 to each value
+///     });
+/// });
+///
+/// // Wait for the background thread to complete
+/// handle.join().unwrap();
+///
+/// // Values have been updated
+/// assert_eq!(cache.get(&"key1".to_string()), Some(11));
+/// assert_eq!(cache.get(&"key2".to_string()), Some(12));
 /// ```
 #[derive(Clone)]
 pub struct SyncSieveCache<K, V>
@@ -276,6 +326,21 @@ where
     /// This operation marks the entry as "visited" in the SIEVE algorithm,
     /// which affects eviction decisions.
     ///
+    /// # Thread Safety
+    ///
+    /// This method operates safely with recursive calls by:
+    ///
+    /// 1. Cloning the value with a short-lived lock
+    /// 2. Releasing the lock during callback execution
+    /// 3. Re-acquiring the lock to update the original value
+    ///
+    /// This approach means:
+    ///
+    /// - The callback can safely make other calls to the same cache instance
+    /// - The value can be modified by other threads during the callback execution
+    /// - Changes are not visible to other threads until the callback completes
+    /// - Last writer wins if multiple threads modify the same key concurrently
+    ///
     /// # Examples
     ///
     /// ```
@@ -295,11 +360,33 @@ where
         Q: Hash + Eq + ?Sized,
         K: Borrow<Q>,
         F: FnOnce(&mut V),
+        V: Clone,
     {
-        let mut guard = self.locked_cache();
-        if let Some(value) = guard.get_mut(key) {
-            f(value);
-            true
+        // Get a clone of the value if it exists, to avoid deadlocks
+        // if the callback tries to use other methods on this cache
+        let value_opt = {
+            let mut guard = self.locked_cache();
+            if let Some(v) = guard.get_mut(key) {
+                // Clone the value before releasing the lock
+                Some(v.clone())
+            } else {
+                None
+            }
+        };
+
+        if let Some(mut value) = value_opt {
+            // Execute the callback on the cloned value without holding the lock
+            f(&mut value);
+
+            // Update the value back to the cache
+            let mut guard = self.locked_cache();
+            if let Some(original) = guard.get_mut(key) {
+                *original = value;
+                true
+            } else {
+                // Key was removed while callback was executing
+                false
+            }
         } else {
             false
         }
@@ -486,6 +573,19 @@ where
     /// then releasing the lock before applying the function to each value individually.
     /// If the function modifies the values, the changes are saved back to the cache.
     ///
+    /// # Thread Safety
+    ///
+    /// This method operates in three phases:
+    /// 1. It acquires the lock and creates a complete snapshot of the cache
+    /// 2. It releases the lock and applies the callback to each value
+    /// 3. It acquires the lock again individually for each value when writing changes back
+    ///
+    /// This approach means:
+    /// - The lock is not held during callback execution, preventing lock contention
+    /// - If other threads modify the cache between steps 1 and 3, those changes might be overwritten
+    /// - The callback sees a point-in-time snapshot that might not reflect the latest state
+    /// - For long-running operations, consider using individual key operations instead
+    ///
     /// # Examples
     ///
     /// ```
@@ -533,6 +633,19 @@ where
     /// This method safely processes key-value pairs by collecting them with the lock held,
     /// then releasing the lock before applying the function to each pair individually.
     /// If the function modifies the values, the changes are saved back to the cache.
+    ///
+    /// # Thread Safety
+    ///
+    /// This method operates in three phases:
+    /// 1. It acquires the lock and creates a complete snapshot of the cache
+    /// 2. It releases the lock and applies the callback to each key-value pair
+    /// 3. It acquires the lock again individually for each entry when writing changes back
+    ///
+    /// This approach means:
+    /// - The lock is not held during callback execution, preventing lock contention
+    /// - If other threads modify the cache between steps 1 and 3, those changes might be overwritten
+    /// - The callback sees a point-in-time snapshot that might not reflect the latest state
+    /// - For long-running operations, consider using individual key operations instead
     ///
     /// # Examples
     ///
@@ -584,6 +697,24 @@ where
     /// This is useful when you need to perform a series of operations that depend on each other
     /// and you want to ensure that no other thread can access the cache between operations.
     ///
+    /// # Thread Safety
+    ///
+    /// This method provides the strongest thread safety guarantees by:
+    ///
+    /// - Acquiring the lock once for the entire duration of the callback
+    /// - Allowing multiple operations to be performed atomically within a single lock scope
+    /// - Ensuring all operations within the callback are fully isolated from other threads
+    ///
+    /// However, this also means:
+    ///
+    /// - The entire cache is locked during the callback execution
+    /// - Other threads will be blocked from accessing the cache until the callback completes
+    /// - Long-running operations within the callback will cause high contention
+    /// - Callbacks must never try to access the same cache instance recursively (deadlock risk)
+    ///
+    /// This method should be used when you need atomic multi-step operations but used
+    /// sparingly in high-concurrency environments.
+    ///
     /// # Examples
     ///
     /// ```
@@ -611,11 +742,31 @@ where
     ///
     /// Removes all entries for which the provided function returns `false`.
     /// The elements are visited in arbitrary, unspecified order.
-    /// This operation first collects entries while holding the lock, then evaluates
-    /// the predicate on those entries outside the lock, and finally acquires the lock
-    /// again only for each removal operation.
+    ///
+    /// This method offers two modes of operation:
+    /// - Default mode: evaluates predicates outside the lock, with separate remove operations
+    /// - Batch mode: evaluates predicates outside the lock, then performs removals in a single batch
+    ///
+    /// # Thread Safety
+    ///
+    /// This method operates in three phases:
+    /// 1. It acquires the lock and creates a complete snapshot of the cache
+    /// 2. It releases the lock and applies the predicate to each entry
+    /// 3. It either:
+    ///    - Acquires the lock again individually for each entry to be removed (default), or
+    ///    - Acquires the lock once and removes all entries in a batch (batch mode)
+    ///
+    /// This approach means:
+    /// - The lock is not held during predicate execution, preventing lock contention
+    /// - If other threads modify the cache between steps 1 and 3, the method may:
+    ///   - Remove entries that were modified and would now pass the predicate
+    ///   - Miss removing entries added after the snapshot was taken
+    /// - The predicate sees a point-in-time snapshot that might not reflect the latest state
+    /// - For strict consistency requirements, use `with_lock` instead
     ///
     /// # Examples
+    ///
+    /// Basic usage:
     ///
     /// ```
     /// # use sieve_cache::SyncSieveCache;
@@ -626,6 +777,24 @@ where
     ///
     /// // Keep only entries with values greater than 150
     /// cache.retain(|_, value| *value > 150);
+    ///
+    /// assert_eq!(cache.len(), 2);
+    /// assert!(!cache.contains_key(&"key1".to_string()));
+    /// assert!(cache.contains_key(&"key2".to_string()));
+    /// assert!(cache.contains_key(&"key3".to_string()));
+    /// ```
+    ///
+    /// Using batch mode (more efficient):
+    ///
+    /// ```
+    /// # use sieve_cache::SyncSieveCache;
+    /// let cache = SyncSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), 100);
+    /// cache.insert("key2".to_string(), 200);
+    /// cache.insert("key3".to_string(), 300);
+    ///
+    /// // Keep only entries with values greater than 150 (batch mode)
+    /// cache.retain_batch(|_, value| *value > 150);
     ///
     /// assert_eq!(cache.len(), 2);
     /// assert!(!cache.contains_key(&"key1".to_string()));
@@ -652,6 +821,72 @@ where
                 // This acquires the lock for each removal operation
                 self.remove(&key);
             }
+        }
+    }
+
+    /// Retains only the elements specified by the predicate, using batch processing.
+    ///
+    /// This is an optimized version of `retain()` that collects all keys to remove first,
+    /// then removes them in a single batch operation with a single lock acquisition.
+    /// This is more efficient when removing many entries, especially in high-contention scenarios.
+    ///
+    /// # Thread Safety
+    ///
+    /// This method has improved performance characteristics:
+    /// - Only acquires the lock twice (once for collection, once for removal)
+    /// - Performs all removals in a single atomic operation
+    /// - Reduces lock contention compared to standard `retain()`
+    ///
+    /// However, it still has the same consistency characteristics as `retain()`:
+    /// - The snapshot might not reflect concurrent modifications
+    /// - There's a window between collecting entries and removing them where
+    ///   other threads might modify the cache
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::SyncSieveCache;
+    /// let cache = SyncSieveCache::new(100).unwrap();
+    /// cache.insert("key1".to_string(), 100);
+    /// cache.insert("key2".to_string(), 200);
+    /// cache.insert("key3".to_string(), 300);
+    ///
+    /// // Keep only entries with values greater than 150
+    /// cache.retain_batch(|_, value| *value > 150);
+    ///
+    /// assert_eq!(cache.len(), 2);
+    /// assert!(!cache.contains_key(&"key1".to_string()));
+    /// assert!(cache.contains_key(&"key2".to_string()));
+    /// assert!(cache.contains_key(&"key3".to_string()));
+    /// ```
+    pub fn retain_batch<F>(&self, mut f: F)
+    where
+        F: FnMut(&K, &V) -> bool,
+        V: Clone,
+    {
+        // First, safely collect all entries while holding the lock
+        let entries = self.with_lock(|inner_cache| {
+            inner_cache
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<Vec<(K, V)>>()
+        });
+
+        // Collect keys to remove without holding the lock
+        let mut keys_to_remove = Vec::new();
+        for (key, value) in entries {
+            if !f(&key, &value) {
+                keys_to_remove.push(key);
+            }
+        }
+
+        // If there are keys to remove, do it in a single batch operation
+        if !keys_to_remove.is_empty() {
+            self.with_lock(|inner_cache| {
+                for key in keys_to_remove {
+                    inner_cache.remove(&key);
+                }
+            });
         }
     }
 }
