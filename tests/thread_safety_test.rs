@@ -277,7 +277,7 @@ fn test_with_lock_operation() {
         inner_cache.insert("key2".to_string(), 2);
     });
 
-    assert!(cache.len() > 0);
+    assert!(!cache.is_empty());
 }
 
 /// Test nested get inside get_mut for deadlock prevention
@@ -294,7 +294,7 @@ fn test_nested_get_during_mut() {
         let _ = cache.get(&"key2".to_string());
     });
 
-    assert!(cache.len() > 0);
+    assert!(!cache.is_empty());
 }
 
 /// Test simple get_mut operation for deadlock prevention
@@ -308,5 +308,5 @@ fn test_get_mut_operation() {
         *val += 1;
     });
 
-    assert!(cache.len() > 0);
+    assert!(!cache.is_empty());
 }

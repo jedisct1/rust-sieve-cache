@@ -15,6 +15,7 @@ SIEVE is an eviction algorithm that is simpler than LRU but achieves state-of-th
 
 - **Simple and efficient**: SIEVE requires less state than LRU or LFU algorithms
 - **Good performance on skewed workloads**: Particularly effective for real-world access patterns
+- **Adaptive capacity management**: Recommendation system to optimize cache size based on utilization
 - **Multiple implementations**:
   - `SieveCache`: Core single-threaded implementation
   - `SyncSieveCache`: Thread-safe wrapper using a single lock
@@ -63,6 +64,10 @@ assert!(!cache.is_empty());       // Check if empty
 
 // Manual eviction (normally handled automatically when capacity is reached)
 let evicted = cache.evict();  // Returns and removes a value that wasn't recently accessed
+
+// Get a recommendation for optimal cache capacity based on current utilization
+let recommended = cache.recommended_capacity(0.5, 2.0, 0.3, 0.7);
+println!("Recommended capacity: {}", recommended);
 ```
 
 ## Thread-Safe Implementations
@@ -215,6 +220,72 @@ sieve-cache = { version = "1", default-features = false, features = ["sharded"] 
 
 # For documentation tests to work correctly
 sieve-cache = { version = "1", features = ["doctest"] }
+```
+
+## Adaptive Cache Sizing
+
+The library includes a mechanism to recommend optimal cache sizes based on current utilization patterns.
+
+### How it Works
+
+The `recommended_capacity` function analyzes:
+- The ratio of "visited" entries (recently accessed) to total entries
+- How full the cache is relative to its capacity
+- User-defined thresholds for scaling decisions
+
+Based on this analysis, it recommends:
+- Increasing capacity when many entries are frequently accessed (high utilization)
+- Decreasing capacity when few entries are frequently accessed (low utilization)
+- Maintaining current capacity when utilization is within normal parameters
+
+### Usage
+
+```rust
+use sieve_cache::SieveCache;
+
+let mut cache = SieveCache::<String, String>::new(1000).unwrap();
+
+// Add and access items...
+// (usage pattern will affect the recommendation)
+
+// Get recommended capacity with custom parameters
+let recommended = cache.recommended_capacity(
+    0.5,    // min_factor: Never go below 50% of current capacity
+    2.0,    // max_factor: Never exceed 200% of current capacity
+    0.3,    // low_threshold: Consider decreasing below 30% utilization
+    0.7     // high_threshold: Consider increasing above 70% utilization
+);
+
+println!("Current capacity: {}", cache.capacity());
+println!("Recommended capacity: {}", recommended);
+
+// Optionally resize your cache based on the recommendation
+// (requires creating a new cache with the recommended size)
+if recommended != cache.capacity() {
+    let mut new_cache = SieveCache::new(recommended).unwrap();
+
+    // Transfer entries from old cache to new cache
+    for (key, value) in cache.iter() {
+        new_cache.insert(key.clone(), value.clone());
+    }
+
+    // Use the new cache from now on
+    cache = new_cache;
+}
+```
+
+This adaptive sizing capability is available in all three cache implementations:
+
+```
+// Thread-safe version (with "sync" feature enabled)
+// use sieve_cache::SyncSieveCache;
+// let cache = SyncSieveCache::<String, u32>::new(1000).unwrap();
+// let recommended = cache.recommended_capacity(0.5, 2.0, 0.3, 0.7);
+
+// Sharded high-concurrency version (with "sharded" feature enabled)
+// use sieve_cache::ShardedSieveCache;
+// let cache = ShardedSieveCache::<String, u32>::new(1000).unwrap();
+// let recommended = cache.recommended_capacity(0.5, 2.0, 0.3, 0.7);
 ```
 
 ## Performance Considerations

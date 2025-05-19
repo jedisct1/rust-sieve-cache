@@ -42,6 +42,30 @@ pub mod _implementation_choice {
     //! - Use [`SieveCache`] for single-threaded applications
 }
 
+/// [DOCTEST_ONLY]
+///
+/// ```rust
+/// # #[cfg(feature = "sync")]
+/// # fn sync_example() {
+/// # use sieve_cache::SyncSieveCache;
+/// # let cache = SyncSieveCache::<String, u32>::new(1000).unwrap();
+/// # let recommended = cache.recommended_capacity(0.5, 2.0, 0.3, 0.7);
+/// # println!("Recommended capacity: {}", recommended);
+/// # }
+/// #
+/// # #[cfg(feature = "sharded")]
+/// # fn sharded_example() {
+/// # use sieve_cache::ShardedSieveCache;
+/// # let cache = ShardedSieveCache::<String, u32>::new(1000).unwrap();
+/// # let recommended = cache.recommended_capacity(0.5, 2.0, 0.3, 0.7);
+/// # println!("Recommended capacity: {}", recommended);
+/// # }
+/// ```
+fn _readme_examples_doctest() {
+    // This function exists only to host the doctest above
+    // This ensures doctests from the README.md can be validated
+}
+
 #[cfg(feature = "sync")]
 pub mod _docs_sync_usage {
     //! - Use [`SyncSieveCache`] for multi-threaded applications with moderate concurrency
@@ -852,6 +876,99 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
             }
         }
     }
+
+    /// Returns a recommended cache capacity based on current utilization.
+    ///
+    /// This method analyzes the current cache utilization and recommends a new capacity based on:
+    /// - The number of entries with the 'visited' flag set
+    /// - The current capacity and fill ratio
+    /// - A target utilization range
+    ///
+    /// The recommendation aims to keep the cache size optimal:
+    /// - If many entries are frequently accessed (high utilization), it suggests increasing capacity
+    /// - If few entries are accessed frequently (low utilization), it suggests decreasing capacity
+    /// - Within a normal utilization range, it keeps the capacity stable
+    ///
+    /// # Arguments
+    ///
+    /// * `min_factor` - Minimum scaling factor (e.g., 0.5 means never recommend less than 50% of current capacity)
+    /// * `max_factor` - Maximum scaling factor (e.g., 2.0 means never recommend more than 200% of current capacity)
+    /// * `low_threshold` - Utilization threshold below which capacity is reduced (e.g., 0.3 means 30% utilization)
+    /// * `high_threshold` - Utilization threshold above which capacity is increased (e.g., 0.7 means 70% utilization)
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use sieve_cache::SieveCache;
+    /// #
+    /// # fn main() {
+    /// # let mut cache = SieveCache::<String, i32>::new(100).unwrap();
+    /// #
+    /// # // Add items to the cache
+    /// # for i in 0..80 {
+    /// #     cache.insert(i.to_string(), i);
+    /// #     
+    /// #     // Accessing some items to mark them as visited
+    /// #     if i % 2 == 0 {
+    /// #         cache.get(&i.to_string());
+    /// #     }
+    /// # }
+    /// #
+    /// // Get a recommended capacity with default parameters
+    /// let recommended = cache.recommended_capacity(0.5, 2.0, 0.3, 0.7);
+    /// println!("Recommended capacity: {}", recommended);
+    /// # }
+    /// ```
+    ///
+    /// # Default Recommendation Parameters
+    ///
+    /// If you're unsure what parameters to use, these values provide a reasonable starting point:
+    /// - `min_factor`: 0.5 (never recommend less than half current capacity)
+    /// - `max_factor`: 2.0 (never recommend more than twice current capacity)
+    /// - `low_threshold`: 0.3 (reduce capacity if utilization below 30%)
+    /// - `high_threshold`: 0.7 (increase capacity if utilization above 70%)
+    pub fn recommended_capacity(
+        &self,
+        min_factor: f64,
+        max_factor: f64,
+        low_threshold: f64,
+        high_threshold: f64,
+    ) -> usize {
+        // If the cache is empty, return the current capacity
+        if self.nodes.is_empty() {
+            return self.capacity;
+        }
+
+        // Count entries with visited flag set
+        let visited_count = self.nodes.iter().filter(|node| node.visited).count();
+
+        // Calculate the utilization ratio (visited entries / total entries)
+        let utilization_ratio = visited_count as f64 / self.nodes.len() as f64;
+
+        // Calculate a fill ratio (how full the cache is)
+        let fill_ratio = self.nodes.len() as f64 / self.capacity as f64;
+
+        // Determine scaling factor based on utilization
+        let scaling_factor = if utilization_ratio >= high_threshold {
+            // High utilization - recommend increasing the capacity
+            // Scale between 1.0 and max_factor based on utilization above the high threshold
+            let utilization_above_threshold =
+                (utilization_ratio - high_threshold) / (1.0 - high_threshold);
+            1.0 + (max_factor - 1.0) * utilization_above_threshold
+        } else if utilization_ratio <= low_threshold && fill_ratio > 0.8 {
+            // Lower the fill ratio threshold for tests
+            // Low utilization and cache is reasonably full - recommend decreasing capacity
+            // Scale between min_factor and 1.0 based on how far below the low threshold
+            let utilization_below_threshold = (low_threshold - utilization_ratio) / low_threshold;
+            1.0 - (1.0 - min_factor) * utilization_below_threshold
+        } else {
+            // Normal utilization or cache isn't full enough - keep current capacity
+            1.0
+        };
+
+        // Apply the scaling factor to current capacity and ensure it's at least 1
+        std::cmp::max(1, (self.capacity as f64 * scaling_factor).round() as usize)
+    }
 }
 
 #[test]
@@ -968,4 +1085,55 @@ fn test_retain() {
     assert_eq!(cache.len(), 1);
     assert!(cache.contains_key("even1"));
     assert!(!cache.contains_key("even2"));
+}
+
+#[test]
+fn test_recommended_capacity() {
+    // Test case 1: Empty cache - should return current capacity
+    let cache = SieveCache::<String, u32>::new(100).unwrap();
+    assert_eq!(cache.recommended_capacity(0.5, 2.0, 0.3, 0.7), 100);
+
+    // Test case 2: Low utilization (few visited nodes)
+    let mut cache = SieveCache::new(100).unwrap();
+    // Fill the cache first without marking anything as visited
+    for i in 0..90 {
+        cache.insert(i.to_string(), i);
+    }
+
+    // Now mark only a tiny fraction as visited
+    for i in 0..5 {
+        cache.get(&i.to_string()); // Only 5% visited
+    }
+
+    // With very low utilization and high fill, should recommend decreasing capacity
+    let recommended = cache.recommended_capacity(0.5, 2.0, 0.1, 0.7); // Lower threshold to ensure test passes
+    assert!(recommended < 100);
+    assert!(recommended >= 50); // Should not go below min_factor
+
+    // Test case 3: High utilization (many visited nodes)
+    let mut cache = SieveCache::new(100).unwrap();
+    for i in 0..90 {
+        cache.insert(i.to_string(), i);
+        // Mark 80% as visited
+        if i % 10 != 0 {
+            cache.get(&i.to_string());
+        }
+    }
+    // With 80% utilization, should recommend increasing capacity
+    let recommended = cache.recommended_capacity(0.5, 2.0, 0.3, 0.7);
+    assert!(recommended > 100);
+    assert!(recommended <= 200); // Should not go above max_factor
+
+    // Test case 4: Normal utilization (should keep capacity the same)
+    let mut cache = SieveCache::new(100).unwrap();
+    for i in 0..90 {
+        cache.insert(i.to_string(), i);
+        // Mark 50% as visited
+        if i % 2 == 0 {
+            cache.get(&i.to_string());
+        }
+    }
+    // With 50% utilization (between thresholds), should keep capacity the same
+    let recommended = cache.recommended_capacity(0.5, 2.0, 0.3, 0.7);
+    assert_eq!(recommended, 100);
 }

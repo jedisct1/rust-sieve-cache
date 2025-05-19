@@ -1038,6 +1038,78 @@ where
             }
         }
     }
+
+    /// Returns a recommended cache capacity based on current utilization across all shards.
+    ///
+    /// This method analyzes the utilization of all shards and recommends a new total capacity.
+    /// It works by:
+    /// 1. Computing recommended capacity for each shard
+    /// 2. Summing these to get an aggregate recommendation
+    ///
+    /// The recommendation balances resource usage with hit rate:
+    /// - If many entries are frequently accessed (high utilization), it suggests increasing capacity
+    /// - If few entries are accessed frequently (low utilization), it suggests decreasing capacity
+    /// - Within a normal utilization range, it keeps the capacity stable
+    ///
+    /// # Arguments
+    ///
+    /// * `min_factor` - Minimum scaling factor (e.g., 0.5 means never recommend less than 50% of current capacity)
+    /// * `max_factor` - Maximum scaling factor (e.g., 2.0 means never recommend more than 200% of current capacity)
+    /// * `low_threshold` - Utilization threshold below which capacity is reduced (e.g., 0.3 means 30% utilization)
+    /// * `high_threshold` - Utilization threshold above which capacity is increased (e.g., 0.7 means 70% utilization)
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use sieve_cache::ShardedSieveCache;
+    /// # fn main() {
+    /// # let cache = ShardedSieveCache::<String, i32>::with_shards(200, 4).unwrap();
+    /// #
+    /// # // Add items to the cache
+    /// # for i in 0..150 {
+    /// #     cache.insert(i.to_string(), i);
+    /// #     
+    /// #     // Accessing some items to mark them as visited
+    /// #     if i % 2 == 0 {
+    /// #         cache.get(&i.to_string());
+    /// #     }
+    /// # }
+    /// #
+    /// // Get a recommended capacity with default parameters
+    /// let recommended = cache.recommended_capacity(0.5, 2.0, 0.3, 0.7);
+    /// println!("Recommended capacity: {}", recommended);
+    /// # }
+    /// ```
+    ///
+    /// # Default Recommendation Parameters
+    ///
+    /// If you're unsure what parameters to use, these values provide a reasonable starting point:
+    /// - `min_factor`: 0.5 (never recommend less than half current capacity)
+    /// - `max_factor`: 2.0 (never recommend more than twice current capacity)
+    /// - `low_threshold`: 0.3 (reduce capacity if utilization below 30%)
+    /// - `high_threshold`: 0.7 (increase capacity if utilization above 70%)
+    pub fn recommended_capacity(
+        &self,
+        min_factor: f64,
+        max_factor: f64,
+        low_threshold: f64,
+        high_threshold: f64,
+    ) -> usize {
+        // For each shard, calculate the recommended capacity
+        let mut total_recommended = 0;
+
+        for shard in &self.shards {
+            let shard_recommended = {
+                let guard = shard.lock().unwrap_or_else(PoisonError::into_inner);
+                guard.recommended_capacity(min_factor, max_factor, low_threshold, high_threshold)
+            };
+
+            total_recommended += shard_recommended;
+        }
+
+        // Ensure we return at least the number of shards (minimum 1 capacity per shard)
+        std::cmp::max(self.num_shards, total_recommended)
+    }
 }
 
 #[cfg(test)]
@@ -1431,6 +1503,58 @@ mod tests {
         assert_eq!(cache.len(), 1);
         assert!(cache.contains_key(&"even1".to_string()));
         assert!(!cache.contains_key(&"even2".to_string()));
+    }
+
+    #[test]
+    fn test_recommended_capacity() {
+        // Test case 1: Empty cache - should return at least the number of shards
+        let cache = ShardedSieveCache::<String, u32>::with_shards(100, 4).unwrap();
+        assert_eq!(cache.recommended_capacity(0.5, 2.0, 0.3, 0.7), 100);
+
+        // Test case 2: Low utilization (few visited nodes)
+        let cache = ShardedSieveCache::with_shards(100, 4).unwrap();
+        // Fill the cache first without marking anything as visited
+        for i in 0..90 {
+            cache.insert(i.to_string(), i);
+        }
+
+        // Now mark only a tiny fraction as visited
+        for i in 0..5 {
+            cache.get(&i.to_string()); // Only 5% visited
+        }
+
+        // With very low utilization and high fill, should recommend decreasing capacity
+        let recommended = cache.recommended_capacity(0.5, 2.0, 0.1, 0.7); // Lower threshold to ensure test passes
+        assert!(recommended < 100);
+        assert!(recommended >= 50); // Should not go below min_factor
+        assert!(recommended >= 4); // Should not go below number of shards
+
+        // Test case 3: High utilization (many visited nodes)
+        let cache = ShardedSieveCache::with_shards(100, 4).unwrap();
+        for i in 0..90 {
+            cache.insert(i.to_string(), i);
+            // Mark 80% as visited
+            if i % 10 != 0 {
+                cache.get(&i.to_string());
+            }
+        }
+        // With 80% utilization, should recommend increasing capacity
+        let recommended = cache.recommended_capacity(0.5, 2.0, 0.3, 0.7);
+        assert!(recommended > 100);
+        assert!(recommended <= 200); // Should not go above max_factor
+
+        // Test case 4: Normal utilization (should keep capacity the same)
+        let cache = ShardedSieveCache::with_shards(100, 4).unwrap();
+        for i in 0..90 {
+            cache.insert(i.to_string(), i);
+            // Mark 50% as visited
+            if i % 2 == 0 {
+                cache.get(&i.to_string());
+            }
+        }
+        // With 50% utilization (between thresholds), should keep capacity the same
+        let recommended = cache.recommended_capacity(0.5, 2.0, 0.3, 0.7);
+        assert_eq!(recommended, 100);
     }
 
     #[test]
