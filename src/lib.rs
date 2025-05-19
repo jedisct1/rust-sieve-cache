@@ -880,11 +880,13 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     /// Returns a recommended cache capacity based on current utilization.
     ///
     /// This method analyzes the current cache utilization and recommends a new capacity based on:
+    /// - The fill ratio (how much of the capacity is actually being used)
     /// - The number of entries with the 'visited' flag set
-    /// - The current capacity and fill ratio
     /// - A target utilization range
     ///
     /// The recommendation aims to keep the cache size optimal:
+    /// - If the cache is significantly underfilled (fill ratio < 10%), it suggests decreasing capacity
+    ///   regardless of other factors to avoid wasting memory
     /// - If many entries are frequently accessed (high utilization), it suggests increasing capacity
     /// - If few entries are accessed frequently (low utilization), it suggests decreasing capacity
     /// - Within a normal utilization range, it keeps the capacity stable
@@ -945,7 +947,30 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
         // Calculate the utilization ratio (visited entries / total entries)
         let utilization_ratio = visited_count as f64 / self.nodes.len() as f64;
 
-        // Determine scaling factor based on utilization
+        // Calculate fill ratio (total entries / capacity)
+        let fill_ratio = self.nodes.len() as f64 / self.capacity as f64;
+
+        // Low fill ratio threshold (consider the cache underfilled below this)
+        let low_fill_threshold = 0.1; // 10% filled
+
+        // Fill ratio takes precedence over utilization:
+        // If the cache is severely underfilled, we should decrease capacity
+        // regardless of utilization
+        if fill_ratio < low_fill_threshold {
+            // Calculate how much to decrease based on how empty the cache is
+            let fill_below_threshold = if fill_ratio > 0.0 {
+                (low_fill_threshold - fill_ratio) / low_fill_threshold
+            } else {
+                1.0
+            };
+            // Apply the min_factor as a floor
+            let scaling_factor = 1.0 - (1.0 - min_factor) * fill_below_threshold;
+
+            // Apply the scaling factor to current capacity and ensure it's at least 1
+            return std::cmp::max(1, (self.capacity as f64 * scaling_factor).round() as usize);
+        }
+
+        // For normal fill levels, use the original logic based on utilization
         let scaling_factor = if utilization_ratio >= high_threshold {
             // High utilization - recommend increasing the capacity
             // Scale between 1.0 and max_factor based on utilization above the high threshold
@@ -953,7 +978,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
                 (utilization_ratio - high_threshold) / (1.0 - high_threshold);
             1.0 + (max_factor - 1.0) * utilization_above_threshold
         } else if utilization_ratio <= low_threshold {
-            // Low utilization - recommend decreasing capacity regardless of fill ratio
+            // Low utilization - recommend decreasing capacity
             // Scale between min_factor and 1.0 based on how far below the low threshold
             let utilization_below_threshold = (low_threshold - utilization_ratio) / low_threshold;
             1.0 - (1.0 - min_factor) * utilization_below_threshold
@@ -1138,5 +1163,26 @@ fn test_recommended_capacity() {
     assert!(
         recommended <= 100,
         "With normal utilization, capacity should not exceed original"
+    );
+
+    // Test case 5: Low fill ratio (few entries relative to capacity)
+    let mut cache = SieveCache::new(2000).unwrap();
+    // Add only a few entries (5% of capacity)
+    for i in 0..100 {
+        cache.insert(i.to_string(), i);
+        // Mark all as visited to simulate high hit rate
+        cache.get(&i.to_string());
+    }
+
+    // Even though utilization is high (100% visited), the fill ratio is very low (5%)
+    // so it should still recommend decreasing capacity
+    let recommended = cache.recommended_capacity(0.5, 2.0, 0.3, 0.7);
+    assert!(
+        recommended < 2000,
+        "With low fill ratio, capacity should be decreased despite high hit rate"
+    );
+    assert!(
+        recommended >= 1000, // min_factor = 0.5
+        "Capacity should not go below min_factor of current capacity"
     );
 }

@@ -1567,6 +1567,31 @@ mod tests {
             recommended <= 100,
             "With normal utilization, capacity should not exceed original"
         );
+
+        // Test case 5: Low fill ratio (few entries relative to capacity)
+        let cache = ShardedSieveCache::with_shards(2000, 4).unwrap();
+        // Add only a few entries (5% of capacity)
+        for i in 0..100 {
+            cache.insert(i.to_string(), i);
+            // Mark all as visited to simulate high hit rate
+            cache.get(&i.to_string());
+        }
+
+        // Even though utilization is high (100% visited), the fill ratio is very low (5%)
+        // so it should still recommend decreasing capacity
+        let recommended = cache.recommended_capacity(0.5, 2.0, 0.3, 0.7);
+        assert!(
+            recommended < 2000,
+            "With low fill ratio, capacity should be decreased despite high hit rate"
+        );
+        assert!(
+            recommended >= 1000, // min_factor = 0.5
+            "Capacity should not go below min_factor of current capacity"
+        );
+        assert!(
+            recommended >= 4, // Should not go below number of shards
+            "Capacity should not go below number of shards"
+        );
     }
 
     #[test]
