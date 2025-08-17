@@ -420,7 +420,16 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
 
         // Evict if at capacity
         if self.nodes.len() >= self.capacity {
-            self.evict();
+            let item = self.evict();
+            // When the cache is full and *all* entries are marked `visited`, our `evict()` performs
+            // a first pass that clears the `visited` bits but may return `None` without removing
+            // anything. We still must free a slot before inserting, so we call `evict()` a second
+            // time. This mirrors the original SIEVE miss path, which keeps scanning (wrapping once)
+            // until it finds an item to evict after clearing bits.
+            if item.is_none() {
+                let item = self.evict();
+                debug_assert!(item.is_some(), "evict() must remove one entry when at capacity");
+            }
         }
 
         // Add new node to the front
@@ -428,6 +437,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
         self.nodes.push(node);
         let idx = self.nodes.len() - 1;
         self.map.insert(key, idx);
+        debug_assert!(self.nodes.len() < self.capacity);
         true
     }
 
@@ -1185,4 +1195,18 @@ fn test_recommended_capacity() {
         recommended >= 1000, // min_factor = 0.5
         "Capacity should not go below min_factor of current capacity"
     );
+}
+
+#[test]
+fn insert_never_exceeds_capacity_when_all_visited() {
+    let mut c = SieveCache::new(2).unwrap();
+    c.insert("a".to_string(), 1);
+    c.insert("b".to_string(), 2);
+    // Mark all visited
+    assert!(c.get("a").is_some());
+    assert!(c.get("b").is_some());
+    // This would exceed capacity
+    c.insert("c".to_string(), 3);
+    // This is our an invariant
+    assert!(c.len() <= c.capacity());
 }
