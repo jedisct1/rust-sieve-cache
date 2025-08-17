@@ -437,7 +437,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
         self.nodes.push(node);
         let idx = self.nodes.len() - 1;
         self.map.insert(key, idx);
-        debug_assert!(self.nodes.len() < self.capacity);
+        debug_assert!(self.nodes.len() <= self.capacity);
         true
     }
 
