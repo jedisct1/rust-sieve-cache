@@ -428,7 +428,10 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
             // until it finds an item to evict after clearing bits.
             if item.is_none() {
                 let item = self.evict();
-                debug_assert!(item.is_some(), "evict() must remove one entry when at capacity");
+                debug_assert!(
+                    item.is_some(),
+                    "evict() must remove one entry when at capacity"
+                );
             }
         }
 
