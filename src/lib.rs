@@ -489,17 +489,17 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
             return Some(self.nodes.pop().unwrap().value);
         }
 
-        // Update hand if needed
+        // Update hand if needed (scan direction is from low to high indices)
         if let Some(hand_idx) = self.hand {
+            let last_idx = self.nodes.len() - 1;
             if hand_idx == idx {
-                // Move hand to the previous node or wrap to end
-                self.hand = if idx > 0 {
-                    Some(idx - 1)
-                } else {
-                    Some(self.nodes.len() - 2)
-                };
-            } else if hand_idx == self.nodes.len() - 1 {
-                // If hand points to the last element (which will be moved to idx)
+                let new_len = self.nodes.len() - 1;
+                if new_len == 0 {
+                    self.hand = None;
+                } else if idx >= new_len {
+                    self.hand = Some(0);
+                }
+            } else if hand_idx == last_idx {
                 self.hand = Some(idx);
             }
         }
@@ -522,11 +522,11 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     /// Removes and returns a value from the cache that was not recently accessed.
     ///
     /// This method implements the SIEVE eviction algorithm:
-    /// 1. Starting from the "hand" pointer or the end of the vector, look for an entry
-    ///    that hasn't been visited since the last scan
+    /// 1. Starting from the "hand" pointer or the beginning of the vector (oldest entries),
+    ///    look for an entry that hasn't been visited since the last scan
     /// 2. Mark all visited entries as non-visited during the scan
     /// 3. If a non-visited entry is found, evict it
-    /// 4. Update the hand to point to the previous node
+    /// 4. Update the hand to point to the next node
     ///
     /// # Return Value
     ///
@@ -550,14 +550,14 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     /// cache.insert("key2".to_string(), "value2".to_string());
     /// cache.insert("key3".to_string(), "value3".to_string());
     ///
-    /// // Access key1 and key2 to mark them as visited
-    /// cache.get("key1");
+    /// // Access key2 and key3 to mark them as visited
     /// cache.get("key2");
+    /// cache.get("key3");
     ///
-    /// // key3 hasn't been accessed, so it should be evicted
+    /// // key1 hasn't been accessed (oldest, unvisited), so it should be evicted
     /// let evicted = cache.evict();
     /// assert!(evicted.is_some());
-    /// assert!(!cache.contains_key("key3")); // key3 was evicted
+    /// assert!(!cache.contains_key("key1")); // key1 was evicted
     /// # }
     /// ```
     pub fn evict(&mut self) -> Option<V> {
@@ -565,15 +565,15 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
             return None;
         }
 
-        // Start from the hand pointer or the end if no hand
-        let mut current_idx = self.hand.unwrap_or(self.nodes.len() - 1);
+        // Start from the hand pointer or index 0 (tail/oldest) if no hand
+        let mut current_idx = self.hand.unwrap_or(0);
         let start_idx = current_idx;
 
         // Track whether we've wrapped around and whether we found a node to evict
         let mut wrapped = false;
         let mut found_idx = None;
 
-        // Scan for a non-visited entry
+        // Scan for a non-visited entry (from tail toward head)
         loop {
             // If current node is not visited, mark it for eviction
             if !self.nodes[current_idx].visited {
@@ -584,17 +584,17 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
             // Mark as non-visited for next scan
             self.nodes[current_idx].visited = false;
 
-            // Move to previous node or wrap to end
-            current_idx = if current_idx > 0 {
-                current_idx - 1
+            // Move to next node (toward head) or wrap to beginning (tail)
+            current_idx = if current_idx + 1 < self.nodes.len() {
+                current_idx + 1
             } else {
-                // Wrap around to end of vector
+                // Wrap around to beginning of vector
                 if wrapped {
                     // If we've already wrapped, break to avoid infinite loop
                     break;
                 }
                 wrapped = true;
-                self.nodes.len() - 1
+                0
             };
 
             // If we've looped back to start, we've checked all nodes
@@ -605,14 +605,19 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
 
         // If we found a node to evict
         if let Some(idx) = found_idx {
-            // Update the hand pointer to the previous node or wrap to end
-            self.hand = if idx > 0 {
-                Some(idx - 1)
-            } else if self.nodes.len() > 1 {
-                Some(self.nodes.len() - 2)
+            let last_idx = self.nodes.len() - 1;
+
+            // Update the hand pointer to the next position in scan order
+            if idx == last_idx {
+                // Evicting the last element, hand wraps to 0
+                self.hand = if self.nodes.len() > 1 { Some(0) } else { None };
             } else {
-                None
-            };
+                // swap_remove will move the last element to idx
+                // Hand should point to idx (where the moved element now is) to continue scanning
+                // But if hand would be >= new length, wrap to 0
+                let new_len = self.nodes.len() - 1;
+                self.hand = if idx < new_len { Some(idx) } else { Some(0) };
+            }
 
             // Remove the key from the map
             let key = &self.nodes[idx].key;
@@ -625,7 +630,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
             } else {
                 // Otherwise swap with the last node
                 let last_node = self.nodes.pop().unwrap();
-                let last_key = last_node.key.clone(); // Clone the key before moving
+                let last_key = last_node.key.clone();
                 let removed_node = std::mem::replace(&mut self.nodes[idx], last_node);
                 // Update the map for the moved node
                 self.map.insert(last_key, idx);
