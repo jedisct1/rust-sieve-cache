@@ -57,7 +57,7 @@ fn bench_composite(c: &mut Criterion) {
             || StdRng::seed_from_u64(0), // Use deterministic seed
             |mut rng| {
                 for _ in 1..1000 {
-                    let n = rng.random_range(0..100);
+                    let n = rng.gen_range(0..100);
                     black_box(cache.insert(n, (vec![0u8; 12], n)));
                 }
             },
@@ -69,7 +69,7 @@ fn bench_composite(c: &mut Criterion) {
             || StdRng::seed_from_u64(0), // Use deterministic seed
             |mut rng| {
                 for _ in 1..1000 {
-                    let n = rng.random_range(0..100);
+                    let n = rng.gen_range(0..100);
                     black_box(cache.get(&n));
                 }
             },
@@ -156,7 +156,7 @@ mod concurrent_benchmarks {
 
                     for i in 0..OPS_PER_THREAD {
                         // Use a key range that creates some contention but also some distribution
-                        let key = rng.random_range(0..1000);
+                        let key = rng.gen_range(0..1000);
 
                         // Mix operations: 40% inserts, 60% reads
                         if i % 10 < 4 {
