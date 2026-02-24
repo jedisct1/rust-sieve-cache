@@ -642,6 +642,24 @@ where
         None
     }
 
+    /// Evicts one entry from the cache, returning both the key and value.
+    ///
+    /// Unlike [`evict()`](Self::evict), this method guarantees that `None`
+    /// is returned only when the cache is truly empty (it internalizes the
+    /// retry needed when all entries are visited).
+    pub fn evict_pair(&self) -> Option<(K, V)> {
+        for shard in &self.shards {
+            let result = shard
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .evict_pair();
+            if result.is_some() {
+                return result;
+            }
+        }
+        None
+    }
+
     /// Removes all entries from the cache.
     ///
     /// This operation clears all stored values across all shards and resets the cache to an empty state,

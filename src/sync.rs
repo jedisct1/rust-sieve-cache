@@ -464,6 +464,16 @@ where
         guard.evict()
     }
 
+    /// Evicts one entry from the cache, returning both the key and value.
+    ///
+    /// Unlike [`evict()`](Self::evict), this method guarantees that `None`
+    /// is returned only when the cache is truly empty (it internalizes the
+    /// retry needed when all entries are visited).
+    pub fn evict_pair(&self) -> Option<(K, V)> {
+        let mut guard = self.locked_cache();
+        guard.evict_pair()
+    }
+
     /// Removes all entries from the cache.
     ///
     /// This operation clears all stored values and resets the cache to an empty state,

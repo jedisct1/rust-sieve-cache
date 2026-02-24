@@ -14,10 +14,11 @@ readme = "README.md"
 rust-version = "1.60.0"
 
 [features]
-default = ["sync", "sharded"]
+default = ["sync", "sharded", "weighted"]
 sync = []
 sharded = []
-doctest = ["sync", "sharded"]
+weighted = []
+doctest = ["sync", "sharded", "weighted"]
 
 [dependencies]
 

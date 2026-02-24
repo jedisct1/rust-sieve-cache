@@ -2,7 +2,7 @@
 
 # SIEVE cache
 
-A high-performance implementation of the [SIEVE](http://sievecache.com) cache replacement algorithm for Rust, with both single-threaded and thread-safe variants.
+A high-performance implementation of the [SIEVE](http://sievecache.com) cache replacement algorithm for Rust, with single-threaded, thread-safe, and memory-bounded variants.
 
 - [API documentation](https://docs.rs/sieve-cache)
 - [`crates.io` page](https://crates.io/crates/sieve-cache)
@@ -16,16 +16,20 @@ SIEVE is an eviction algorithm that is simpler than LRU but achieves state-of-th
 - **Simple and efficient**: SIEVE requires less state than LRU or LFU algorithms
 - **Good performance on skewed workloads**: Particularly effective for real-world access patterns
 - **Adaptive capacity management**: Recommendation system to optimize cache size based on utilization
+- **Memory-bounded caching**: Optional weight-based eviction via the `Weigh` trait
 - **Multiple implementations**:
   - `SieveCache`: Core single-threaded implementation
   - `SyncSieveCache`: Thread-safe wrapper using a single lock
   - `ShardedSieveCache`: High-concurrency implementation using multiple locks
+  - `WeightedSieveCache`: Memory-bounded wrapper that evicts by weight
+  - `WeightedSyncSieveCache`: Thread-safe memory-bounded cache
+  - `WeightedShardedSieveCache`: Sharded memory-bounded cache
 
 This implementation exposes the same API as the `clock-pro` and `arc-cache` crates, so it can be used as a drop-in replacement for them in existing applications.
 
 ## Basic Usage
 
-The library provides three cache implementations with different threading characteristics.
+The library provides cache implementations with different threading and eviction characteristics.
 
 ### `SieveCache` - Single-Threaded Implementation
 
@@ -199,12 +203,45 @@ The `ShardedSieveCache` divides the cache into multiple independent segments (sh
 
 This design significantly reduces lock contention when operations are distributed across different keys, making it ideal for high-concurrency workloads.
 
+## Memory-Bounded Caches
+
+The `weighted` feature (enabled by default) adds cache implementations that evict based on a memory budget rather than just entry count. Each key and value type implements the `Weigh` trait, which reports its approximate memory footprint. Blanket implementations are provided for common types (`String`, `Vec<T>`, `Box<T>`, primitives, etc.).
+
+### `WeightedSieveCache` - Single-Threaded
+
+```rust
+use sieve_cache::{Weigh, WeightedSieveCache};
+
+// Create a cache that holds at most 10 entries and 1 KB of weight
+let mut cache = WeightedSieveCache::new(10, 1024).unwrap();
+
+cache.insert("key".to_string(), "value".to_string());
+assert!(cache.current_weight() > 0);
+assert!(cache.current_weight() <= cache.max_weight());
+
+// Weight is snapshotted at insert time.
+// Mutating via get_mut does not change the tracked weight.
+if let Some(v) = cache.get_mut("key") {
+    *v = "a much longer string".to_string();
+}
+// current_weight still reflects the original "value"
+
+// Entries are evicted automatically when inserting would exceed max_weight.
+// A single oversized entry is allowed as the sole occupant.
+```
+
+Thread-safe variants follow the same pattern as their non-weighted counterparts:
+
+- `WeightedSyncSieveCache::new(capacity, max_weight)` -- single-lock thread safety
+- `WeightedShardedSieveCache::new(capacity, max_weight)` -- sharded, with the weight budget distributed across shards
+
 ## Feature Flags
 
 This crate provides the following feature flags to control which implementations are available:
 
-- `sync`: Enables the thread-safe `SyncSieveCache` implementation (enabled by default)
-- `sharded`: Enables the sharded `ShardedSieveCache` implementation (enabled by default)
+- `sync`: Enables `SyncSieveCache` and `WeightedSyncSieveCache` (enabled by default)
+- `sharded`: Enables `ShardedSieveCache` and `WeightedShardedSieveCache` (enabled by default)
+- `weighted`: Enables `WeightedSieveCache`, `Weigh` trait, and the weighted sync/sharded variants (enabled by default)
 
 If you only need specific implementations, you can select just the features you need:
 
@@ -212,11 +249,11 @@ If you only need specific implementations, you can select just the features you 
 # Only use the core implementation
 sieve-cache = { version = "1", default-features = false }
 
-# Only use the core and sync implementations
+# Core + sync, no weighted
 sieve-cache = { version = "1", default-features = false, features = ["sync"] }
 
-# Only use the core and sharded implementations
-sieve-cache = { version = "1", default-features = false, features = ["sharded"] }
+# Everything except sharding
+sieve-cache = { version = "1", default-features = false, features = ["sync", "weighted"] }
 
 # For documentation tests to work correctly
 sieve-cache = { version = "1", features = ["doctest"] }

@@ -4,7 +4,8 @@
 //!
 //! This crate provides implementations of the SIEVE cache replacement algorithm:
 //!
-//! * [`SieveCache`] - The core single-threaded implementation (always available)
+//! * [`SieveCache`] - Core single-threaded implementation (always available)
+//! * [`WeightedSieveCache`] - Memory-bounded variant that evicts by weight (`weighted` feature)
 
 #[cfg(feature = "sync")]
 pub mod _docs_sync {}
@@ -85,11 +86,23 @@ use std::hash::Hash;
 mod sharded;
 #[cfg(feature = "sync")]
 mod sync;
+#[cfg(feature = "weighted")]
+pub mod weighted;
+#[cfg(all(feature = "weighted", feature = "sharded"))]
+mod weighted_sharded;
+#[cfg(all(feature = "weighted", feature = "sync"))]
+mod weighted_sync;
 
 #[cfg(feature = "sharded")]
 pub use sharded::ShardedSieveCache;
 #[cfg(feature = "sync")]
 pub use sync::SyncSieveCache;
+#[cfg(feature = "weighted")]
+pub use weighted::{Weigh, WeightedSieveCache};
+#[cfg(all(feature = "weighted", feature = "sharded"))]
+pub use weighted_sharded::WeightedShardedSieveCache;
+#[cfg(all(feature = "weighted", feature = "sync"))]
+pub use weighted_sync::WeightedSyncSieveCache;
 
 /// Internal representation of a cache entry
 #[derive(Clone)]
@@ -336,6 +349,35 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
         } else {
             None
         }
+    }
+
+    /// Returns a reference to the key and value for `key`, without marking
+    /// it as visited.
+    ///
+    /// Unlike [`get`](Self::get), this does not affect eviction decisions.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
+    /// use sieve_cache::SieveCache;
+    ///
+    /// let mut cache = SieveCache::new(100).unwrap();
+    /// cache.insert("key".to_string(), "value".to_string());
+    ///
+    /// let (k, v) = cache.get_key_value("key").unwrap();
+    /// assert_eq!(k, "key");
+    /// assert_eq!(v, "value");
+    /// # }
+    /// ```
+    pub fn get_key_value<Q>(&self, key: &Q) -> Option<(&K, &V)>
+    where
+        Q: Hash + Eq + ?Sized,
+        K: Borrow<Q>,
+    {
+        let &idx = self.map.get(key)?;
+        Some((&self.nodes[idx].key, &self.nodes[idx].value))
     }
 
     /// Gets a mutable reference to the value in the cache mapped to by `key`.
@@ -633,6 +675,105 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
                 // Update the map for the moved node
                 self.map.insert(last_key, idx);
                 return Some(removed_node.value);
+            }
+        }
+
+        None
+    }
+
+    /// Evicts one entry from the cache, returning both the key and value.
+    ///
+    /// Unlike [`evict()`](Self::evict), this method internalizes the retry
+    /// needed when all entries are marked as visited: the first pass clears
+    /// visited bits, and a second pass finds an entry to remove. This
+    /// guarantees that `None` is returned **only** when the cache is truly
+    /// empty.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use sieve_cache::SieveCache;
+    /// let mut cache: SieveCache<&str, &str> = SieveCache::new(2).unwrap();
+    /// cache.insert("a", "1");
+    /// cache.insert("b", "2");
+    /// // Mark both as visited
+    /// cache.get("a");
+    /// cache.get("b");
+    /// // evict_pair still succeeds (retries internally)
+    /// let evicted = cache.evict_pair();
+    /// assert!(evicted.is_some());
+    /// let (key, _value) = evicted.unwrap();
+    /// assert!(!cache.contains_key(key));
+    /// ```
+    pub fn evict_pair(&mut self) -> Option<(K, V)> {
+        if let Some(pair) = self.evict_pair_inner() {
+            return Some(pair);
+        }
+        // First pass may have only cleared visited bits without evicting.
+        // Retry once — if the cache is non-empty, this will find an entry.
+        if self.nodes.is_empty() {
+            return None;
+        }
+        self.evict_pair_inner()
+    }
+
+    /// Single-pass eviction that returns the key-value pair.
+    /// May return `None` on a non-empty cache if all entries were visited
+    /// (the pass clears visited bits but doesn't remove anything).
+    fn evict_pair_inner(&mut self) -> Option<(K, V)> {
+        if self.nodes.is_empty() {
+            return None;
+        }
+
+        let mut current_idx = self.hand.unwrap_or(0);
+        let start_idx = current_idx;
+        let mut wrapped = false;
+        let mut found_idx = None;
+
+        loop {
+            if !self.nodes[current_idx].visited {
+                found_idx = Some(current_idx);
+                break;
+            }
+
+            self.nodes[current_idx].visited = false;
+
+            current_idx = if current_idx + 1 < self.nodes.len() {
+                current_idx + 1
+            } else {
+                if wrapped {
+                    break;
+                }
+                wrapped = true;
+                0
+            };
+
+            if current_idx == start_idx {
+                break;
+            }
+        }
+
+        if let Some(idx) = found_idx {
+            let last_idx = self.nodes.len() - 1;
+
+            if idx == last_idx {
+                self.hand = if self.nodes.len() > 1 { Some(0) } else { None };
+            } else {
+                let new_len = self.nodes.len() - 1;
+                self.hand = if idx < new_len { Some(idx) } else { Some(0) };
+            }
+
+            self.map.remove(&self.nodes[idx].key);
+
+            if idx == self.nodes.len() - 1 {
+                let node = self.nodes.pop().unwrap();
+                return Some((node.key, node.value));
+            } else {
+                let last_node = self.nodes.pop().unwrap();
+                let last_key = last_node.key.clone();
+                let removed_node = std::mem::replace(&mut self.nodes[idx], last_node);
+                self.map.insert(last_key, idx);
+                return Some((removed_node.key, removed_node.value));
             }
         }
 
