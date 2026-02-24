@@ -116,9 +116,7 @@ impl<K: Eq + Hash + Clone, V> Node<K, V> {
 /// skewed workloads common in real-world applications.
 ///
 /// This is the single-threaded implementation.
-#[cfg(feature = "sync")]
 /// For thread-safe variants, see [`SyncSieveCache`] (with the `sync` feature)
-#[cfg(feature = "sharded")]
 /// and [`ShardedSieveCache`] (with the `sharded` feature).
 ///
 /// # Type Parameters
@@ -265,7 +263,7 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     /// let mut cache = SieveCache::<String, u32>::new(100).unwrap();
     /// assert!(cache.is_empty());
     ///
-    /// cache.insert("key".to_string(), "value".to_string());
+    /// cache.insert("key".to_string(), 42);
     /// assert!(!cache.is_empty());
     ///
     /// cache.remove("key");

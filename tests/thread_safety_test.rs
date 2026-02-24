@@ -3,6 +3,7 @@
 //! This test verifies that the thread-safe implementations of SieveCache
 //! properly handle concurrent operations without data races or other
 //! thread safety issues.
+#![cfg(all(feature = "sync", feature = "sharded"))]
 
 use sieve_cache::{ShardedSieveCache, SyncSieveCache};
 use std::sync::{Arc, Barrier};
