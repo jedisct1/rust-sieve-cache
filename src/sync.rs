@@ -1,7 +1,7 @@
 use crate::SieveCache;
 use std::borrow::Borrow;
 use std::fmt;
-use std::hash::Hash;
+use std::hash::{BuildHasher, Hash, RandomState};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 /// A thread-safe wrapper around `SieveCache`.
@@ -85,18 +85,20 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 /// assert_eq!(cache.get(&"key2".to_string()), Some(12));
 /// ```
 #[derive(Clone)]
-pub struct SyncSieveCache<K, V>
+pub struct SyncSieveCache<K, V, S = RandomState>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Send + Sync,
+    S: BuildHasher
 {
-    inner: Arc<Mutex<SieveCache<K, V>>>,
+    inner: Arc<Mutex<SieveCache<K, V, S>>>,
 }
 
-impl<K, V> Default for SyncSieveCache<K, V>
+impl<K, V, S> Default for SyncSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Send + Sync,
+    S: BuildHasher + Default
 {
     /// Creates a new cache with a default capacity of 100 entries.
     ///
@@ -114,14 +116,15 @@ where
     /// assert_eq!(cache.capacity(), 100);
     /// ```
     fn default() -> Self {
-        Self::new(100).expect("Failed to create cache with default capacity")
+        Self::new_with_hasher(100, Default::default()).expect("Failed to create cache with default capacity")
     }
 }
 
-impl<K, V> fmt::Debug for SyncSieveCache<K, V>
+impl<K, V, S> fmt::Debug for SyncSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync + fmt::Debug,
     V: Send + Sync + fmt::Debug,
+    S: BuildHasher
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let guard = self.locked_cache();
@@ -132,10 +135,11 @@ where
     }
 }
 
-impl<K, V> From<SieveCache<K, V>> for SyncSieveCache<K, V>
+impl<K, V, S> From<SieveCache<K, V, S>> for SyncSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Send + Sync,
+    S: BuildHasher
 {
     /// Creates a new thread-safe cache from an existing `SieveCache`.
     ///
@@ -152,17 +156,18 @@ where
     /// let thread_safe = SyncSieveCache::from(single_threaded);
     /// assert_eq!(thread_safe.get(&"key".to_string()), Some("value".to_string()));
     /// ```
-    fn from(cache: SieveCache<K, V>) -> Self {
+    fn from(cache: SieveCache<K, V, S>) -> Self {
         Self {
             inner: Arc::new(Mutex::new(cache)),
         }
     }
 }
 
-impl<K, V> IntoIterator for SyncSieveCache<K, V>
+impl<K, V, S> IntoIterator for SyncSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Clone + Send + Sync,
+    S: BuildHasher
 {
     type Item = (K, V);
     type IntoIter = std::vec::IntoIter<(K, V)>;
@@ -208,7 +213,38 @@ where
     /// let cache = SyncSieveCache::<String, String>::new(100).unwrap();
     /// ```
     pub fn new(capacity: usize) -> Result<Self, &'static str> {
-        let cache = SieveCache::new(capacity)?;
+        Self::new_with_hasher(capacity, Default::default())
+    }
+}
+
+impl<K, V, S> SyncSieveCache<K, V, S>
+where
+    K: Eq + Hash + Clone + Send + Sync,
+    V: Send + Sync,
+    S: BuildHasher
+{
+    /// Creates a new thread-safe cache with the given capacity using a custom hash builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - The maximum number of entries in the cache
+    /// * `hasher` - A hash builder instance (e.g., from `ahash::AHasher` or `std::collections::hash_map::RandomState`)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the capacity is zero.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::SyncSieveCache;
+    /// # use std::hash::BuildHasherDefault;
+    /// # use std::collections::hash_map::DefaultHasher;
+    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    /// let cache: SyncSieveCache<String, String, _> = SyncSieveCache::new_with_hasher(100, hasher).unwrap();
+    /// ```
+    pub fn new_with_hasher(capacity: usize, hasher: S) -> Result<Self, &'static str> {
+        let cache = SieveCache::new_with_hasher(capacity, hasher)?;
         Ok(Self {
             inner: Arc::new(Mutex::new(cache)),
         })
@@ -220,7 +256,7 @@ where
     /// If the mutex is poisoned due to a panic in another thread, the poison
     /// error is recovered from by calling `into_inner()` to access the underlying data.
     #[inline]
-    fn locked_cache(&self) -> MutexGuard<'_, SieveCache<K, V>> {
+    fn locked_cache(&self) -> MutexGuard<'_, SieveCache<K, V, S>> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -738,7 +774,7 @@ where
     /// ```
     pub fn with_lock<F, T>(&self, f: F) -> T
     where
-        F: FnOnce(&mut SieveCache<K, V>) -> T,
+        F: FnOnce(&mut SieveCache<K, V, S>) -> T,
     {
         let mut guard = self.locked_cache();
         f(&mut guard)

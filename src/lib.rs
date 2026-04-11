@@ -78,9 +78,9 @@ pub mod _docs_sharded_usage {
     //!   are distributed across many different keys
 }
 
-use std::borrow::Borrow;
+use std::{borrow::Borrow, hash::BuildHasher};
 use std::collections::HashMap;
-use std::hash::Hash;
+use std::hash::{Hash, RandomState};
 
 #[cfg(feature = "sharded")]
 mod sharded;
@@ -136,6 +136,7 @@ impl<K: Eq + Hash + Clone, V> Node<K, V> {
 ///
 /// * `K` - The key type, which must implement `Eq`, `Hash`, and `Clone`
 /// * `V` - The value type, with no constraints
+/// * `S` - The hash builder type for the underlying `HashMap` (default: `RandomState`). Must implement `BuildHasher`
 ///
 /// # Example
 ///
@@ -171,9 +172,9 @@ impl<K: Eq + Hash + Clone, V> Node<K, V> {
 /// assert_eq!(removed, Some("value2".to_string()));
 /// # }
 /// ```
-pub struct SieveCache<K: Eq + Hash + Clone, V> {
+pub struct SieveCache<K: Eq + Hash + Clone, V, S: BuildHasher = RandomState> {
     /// Map of keys to indices in the nodes vector
-    map: HashMap<K, usize>,
+    map: HashMap<K, usize, S>,
     /// Vector of all cache nodes
     nodes: Vec<Node<K, V>>,
     /// Index to the "hand" pointer used by the SIEVE algorithm for eviction
@@ -209,11 +210,47 @@ impl<K: Eq + Hash + Clone, V> SieveCache<K, V> {
     /// # }
     /// ```
     pub fn new(capacity: usize) -> Result<Self, &'static str> {
+        Self::new_with_hasher(capacity, Default::default())
+    }
+}
+
+impl<K: Eq + Hash + Clone, V, S: BuildHasher> SieveCache<K, V, S> {
+    /// Creates a new cache with the given capacity using a custom hash builder.
+    ///
+    /// The capacity represents the maximum number of key-value pairs
+    /// that can be stored in the cache. When this limit is reached,
+    /// the cache will use the SIEVE algorithm to evict entries.
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - The maximum number of entries in the cache
+    /// * `hasher` - A hash builder instance (e.g., from `ahash::AHasher` or `std::collections::hash_map::RandomState`)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the capacity is zero.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
+    /// use sieve_cache::SieveCache;
+    /// use std::hash::BuildHasherDefault;
+    /// use std::collections::hash_map::DefaultHasher;
+    ///
+    /// // Create a cache with a custom hasher
+    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    /// let cache: SieveCache<String, u32, _> = SieveCache::new_with_hasher(100, hasher).unwrap();
+    /// assert_eq!(cache.capacity(), 100);
+    /// # }
+    /// ```
+    pub fn new_with_hasher(capacity: usize, hasher: S) -> Result<Self, &'static str> {
         if capacity == 0 {
             return Err("capacity must be greater than 0");
         }
         Ok(Self {
-            map: HashMap::with_capacity(capacity),
+            map: HashMap::with_capacity_and_hasher(capacity, hasher),
             nodes: Vec::with_capacity(capacity),
             hand: None,
             capacity,

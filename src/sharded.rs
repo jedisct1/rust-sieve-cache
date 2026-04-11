@@ -2,7 +2,7 @@ use crate::SieveCache;
 use std::borrow::Borrow;
 use std::collections::hash_map::DefaultHasher;
 use std::fmt;
-use std::hash::{Hash, Hasher};
+use std::hash::{BuildHasher, Hash, Hasher, RandomState};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 /// Default number of shards to use if not specified explicitly.
@@ -69,6 +69,12 @@ const DEFAULT_SHARDS: usize = 16;
 ///   sharding may be limited
 /// - Default of 16 shards provides a good balance for most workloads, but can be customized
 ///
+/// # Type Parameters
+///
+/// * `K` - The key type, which must implement `Eq`, `Hash`, and `Clone` + `Send` + `Sync`
+/// * `V` - The value type, must implement `Send` + `Sync`
+/// * `S` - The hash builder type for the underlying `HashMap` (default: `RandomState`). Must implement `BuildHasher`
+///
 /// # Examples
 ///
 /// ```
@@ -116,21 +122,23 @@ const DEFAULT_SHARDS: usize = 16;
 /// assert_eq!(cache.len(), 400); // All 400 items were inserted
 /// ```
 #[derive(Clone)]
-pub struct ShardedSieveCache<K, V>
+pub struct ShardedSieveCache<K, V, S = RandomState>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Send + Sync,
+    S: BuildHasher
 {
     /// Array of shard mutexes, each containing a separate SieveCache instance
-    shards: Vec<Arc<Mutex<SieveCache<K, V>>>>,
+    shards: Vec<Arc<Mutex<SieveCache<K, V, S>>>>,
     /// Number of shards in the cache - kept as a separate field for quick access
     num_shards: usize,
 }
 
-impl<K, V> Default for ShardedSieveCache<K, V>
+impl<K, V, S> Default for ShardedSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Send + Sync,
+    S: BuildHasher + Clone + Default
 {
     /// Creates a new sharded cache with a default capacity of 100 entries and default number of shards.
     ///
@@ -149,14 +157,15 @@ where
     /// assert_eq!(cache.num_shards(), 16); // Default shard count
     /// ```
     fn default() -> Self {
-        Self::new(100).expect("Failed to create cache with default capacity")
+        Self::new_with_hasher(100, Default::default()).expect("Failed to create cache with default capacity")
     }
 }
 
-impl<K, V> fmt::Debug for ShardedSieveCache<K, V>
+impl<K, V, S> fmt::Debug for ShardedSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync + fmt::Debug,
     V: Send + Sync + fmt::Debug,
+    S: BuildHasher + Clone
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ShardedSieveCache")
@@ -167,10 +176,11 @@ where
     }
 }
 
-impl<K, V> IntoIterator for ShardedSieveCache<K, V>
+impl<K, V, S> IntoIterator for ShardedSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Clone + Send + Sync,
+    S: BuildHasher + Clone
 {
     type Item = (K, V);
     type IntoIter = std::vec::IntoIter<(K, V)>;
@@ -199,10 +209,11 @@ where
 }
 
 #[cfg(feature = "sync")]
-impl<K, V> From<crate::SyncSieveCache<K, V>> for ShardedSieveCache<K, V>
+impl<K, V, S> From<crate::SyncSieveCache<K, V, S>> for ShardedSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Clone + Send + Sync,
+    S: BuildHasher + Clone + Default
 {
     /// Creates a new sharded cache from an existing `SyncSieveCache`.
     ///
@@ -219,10 +230,10 @@ where
     /// let sharded_cache = ShardedSieveCache::from(sync_cache);
     /// assert_eq!(sharded_cache.get(&"key".to_string()), Some("value".to_string()));
     /// ```
-    fn from(sync_cache: crate::SyncSieveCache<K, V>) -> Self {
+    fn from(sync_cache: crate::SyncSieveCache<K, V, S>) -> Self {
         // Create a new sharded cache with the same capacity
         let capacity = sync_cache.capacity();
-        let sharded = Self::new(capacity).expect("Failed to create sharded cache");
+        let sharded = Self::new_with_hasher(capacity, Default::default()).expect("Failed to create sharded cache");
 
         // Transfer all entries
         for (key, value) in sync_cache.entries() {
@@ -257,7 +268,7 @@ where
     pub fn new(capacity: usize) -> Result<Self, &'static str> {
         Self::with_shards(capacity, DEFAULT_SHARDS)
     }
-
+    
     /// Creates a new sharded cache with the specified capacity and number of shards.
     ///
     /// The capacity will be divided among the shards, distributing any remainder to ensure
@@ -289,6 +300,79 @@ where
     /// assert!(cache.capacity() >= 1000);
     /// ```
     pub fn with_shards(capacity: usize, num_shards: usize) -> Result<Self, &'static str> {
+        Self::with_shards_and_hasher(capacity, num_shards, Default::default())
+    }
+}
+
+impl<K, V, S> ShardedSieveCache<K, V, S>
+where
+    K: Eq + Hash + Clone + Send + Sync,
+    V: Send + Sync,
+    S: BuildHasher + Clone
+{
+    /// Creates a new sharded cache with the specified capacity using a custom hash builder and default number of shards.
+    ///
+    /// The capacity will be divided evenly among the shards. The default shard count (16)
+    /// provides a good balance between concurrency and memory overhead for most workloads.
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - The total capacity of the cache
+    /// * `hasher` - A hash builder instance (e.g., from `ahash::AHasher` or `std::collections::hash_map::RandomState`)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the capacity is zero.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::ShardedSieveCache;
+    /// # use std::hash::BuildHasherDefault;
+    /// # use std::collections::hash_map::DefaultHasher;
+    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    /// let cache: ShardedSieveCache<String, String, _> = ShardedSieveCache::new_with_hasher(1000, hasher).unwrap();
+    /// assert_eq!(cache.num_shards(), 16); // Default shard count
+    /// ```
+    pub fn new_with_hasher(capacity: usize, hasher: S) -> Result<Self, &'static str> {
+        Self::with_shards_and_hasher(capacity, DEFAULT_SHARDS, hasher)
+    }
+ 
+    /// Creates a new sharded cache with the specified capacity, number of shards, and custom hash builder.
+    ///
+    /// The capacity will be divided among the shards, distributing any remainder to ensure
+    /// the total capacity is at least the requested amount.
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - The total capacity of the cache
+    /// * `num_shards` - The number of shards to divide the cache into
+    /// * `hasher` - A hash builder instance (e.g., from `ahash::AHasher` or `std::collections::hash_map::RandomState`)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either the capacity or number of shards is zero.
+    ///
+    /// # Performance Impact
+    ///
+    /// - More shards can reduce contention in highly concurrent environments
+    /// - However, each shard has memory overhead, so very high shard counts may
+    ///   increase memory usage without providing additional performance benefits
+    /// - For most workloads, a value between 8 and 32 shards is optimal
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::ShardedSieveCache;
+    /// # use std::hash::BuildHasherDefault;
+    /// # use std::collections::hash_map::DefaultHasher;
+    /// // Create a cache with 8 shards and a custom hasher
+    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    /// let cache: ShardedSieveCache<String, u32, _> = ShardedSieveCache::with_shards_and_hasher(1000, 8, hasher).unwrap();
+    /// assert_eq!(cache.num_shards(), 8);
+    /// assert!(cache.capacity() >= 1000);
+    /// ```
+    pub fn with_shards_and_hasher(capacity: usize, num_shards: usize, hasher: S) -> Result<Self, &'static str> {
         if capacity == 0 {
             return Err("capacity must be greater than 0");
         }
@@ -311,7 +395,7 @@ where
 
             // Ensure at least capacity 1 per shard
             let shard_capacity = std::cmp::max(1, shard_capacity);
-            shards.push(Arc::new(Mutex::new(SieveCache::new(shard_capacity)?)));
+            shards.push(Arc::new(Mutex::new(SieveCache::new_with_hasher(shard_capacity, hasher.clone())?)));
         }
 
         Ok(Self { shards, num_shards })
@@ -336,7 +420,7 @@ where
     ///
     /// This is an internal helper method that maps a key to its corresponding shard.
     #[inline]
-    fn get_shard<Q>(&self, key: &Q) -> &Arc<Mutex<SieveCache<K, V>>>
+    fn get_shard<Q>(&self, key: &Q) -> &Arc<Mutex<SieveCache<K, V, S>>>
     where
         Q: Hash + ?Sized,
     {
@@ -350,7 +434,7 @@ where
     /// If the mutex is poisoned due to a panic in another thread, the poison error is
     /// recovered from by calling `into_inner()` to access the underlying data.
     #[inline]
-    fn locked_shard<Q>(&self, key: &Q) -> MutexGuard<'_, SieveCache<K, V>>
+    fn locked_shard<Q>(&self, key: &Q) -> MutexGuard<'_, SieveCache<K, V, S>>
     where
         Q: Hash + ?Sized,
     {
@@ -946,7 +1030,7 @@ where
     pub fn with_key_lock<Q, F, T>(&self, key: &Q, f: F) -> T
     where
         Q: Hash + ?Sized,
-        F: FnOnce(&mut SieveCache<K, V>) -> T,
+        F: FnOnce(&mut SieveCache<K, V, S>) -> T,
     {
         let mut guard = self.locked_shard(key);
         f(&mut guard)
@@ -982,7 +1066,7 @@ where
     /// // Out of bounds index
     /// assert!(cache.get_shard_by_index(100).is_none());
     /// ```
-    pub fn get_shard_by_index(&self, index: usize) -> Option<&Arc<Mutex<SieveCache<K, V>>>> {
+    pub fn get_shard_by_index(&self, index: usize) -> Option<&Arc<Mutex<SieveCache<K, V, S>>>> {
         self.shards.get(index)
     }
 

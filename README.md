@@ -74,6 +74,26 @@ let recommended = cache.recommended_capacity(0.5, 2.0, 0.3, 0.7);
 println!("Recommended capacity: {}", recommended);
 ```
 
+### Custom Hash Builder
+
+You can also specify a custom hash builder to use a different hashing algorithm (e.g., `ahash` for faster hashing):
+
+```rust
+use sieve_cache::SieveCache;
+use std::hash::BuildHasherDefault;
+use std::collections::hash_map::DefaultHasher;
+
+// Create a cache with a custom hash builder
+let hasher = BuildHasherDefault::<DefaultHasher>::default();
+let mut cache: SieveCache<String, String, _> = SieveCache::new_with_hasher(100000, hasher).unwrap();
+
+// Use the cache normally
+cache.insert("key".to_string(), "value".to_string());
+assert_eq!(cache.get("key"), Some(&"value".to_string()));
+```
+
+This feature is useful when you need to optimize hashing performance for specific workloads or integrate with crates like `ahash`.
+
 ## Thread-Safe Implementations
 
 These implementations are available when using the appropriate feature flags:
