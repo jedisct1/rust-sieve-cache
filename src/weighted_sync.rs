@@ -24,7 +24,7 @@ pub struct WeightedSyncSieveCache<K, V, S = RandomState>
 where
     K: Eq + Hash + Clone + Weigh + Send + Sync,
     V: Weigh + Send + Sync,
-    S: BuildHasher
+    S: BuildHasher,
 {
     inner: Arc<Mutex<WeightedSieveCache<K, V, S>>>,
 }
@@ -46,7 +46,7 @@ impl<K, V, S> WeightedSyncSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Weigh + Send + Sync,
     V: Weigh + Send + Sync,
-    S: BuildHasher + Clone
+    S: BuildHasher + Clone,
 {
     /// Creates a new thread-safe weighted cache with a custom hash builder.
     ///
@@ -57,7 +57,11 @@ where
     /// * `hasher` - A hash builder instance (e.g., from `ahash::AHasher` or `std::collections::hash_map::RandomState`)
     ///
     /// Returns `Err` if `capacity` or `max_weight` is 0.
-    pub fn new_with_hasher(capacity: usize, max_weight: usize, hasher: S) -> Result<Self, &'static str> {
+    pub fn new_with_hasher(
+        capacity: usize,
+        max_weight: usize,
+        hasher: S,
+    ) -> Result<Self, &'static str> {
         let cache = WeightedSieveCache::new_with_hasher(capacity, max_weight, hasher)?;
         Ok(Self {
             inner: Arc::new(Mutex::new(cache)),

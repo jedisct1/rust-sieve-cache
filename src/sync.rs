@@ -89,7 +89,7 @@ pub struct SyncSieveCache<K, V, S = RandomState>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Send + Sync,
-    S: BuildHasher
+    S: BuildHasher,
 {
     inner: Arc<Mutex<SieveCache<K, V, S>>>,
 }
@@ -98,7 +98,7 @@ impl<K, V, S> Default for SyncSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Send + Sync,
-    S: BuildHasher + Default
+    S: BuildHasher + Default,
 {
     /// Creates a new cache with a default capacity of 100 entries.
     ///
@@ -116,7 +116,8 @@ where
     /// assert_eq!(cache.capacity(), 100);
     /// ```
     fn default() -> Self {
-        Self::new_with_hasher(100, Default::default()).expect("Failed to create cache with default capacity")
+        Self::new_with_hasher(100, Default::default())
+            .expect("Failed to create cache with default capacity")
     }
 }
 
@@ -124,7 +125,7 @@ impl<K, V, S> fmt::Debug for SyncSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync + fmt::Debug,
     V: Send + Sync + fmt::Debug,
-    S: BuildHasher
+    S: BuildHasher,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let guard = self.locked_cache();
@@ -139,7 +140,7 @@ impl<K, V, S> From<SieveCache<K, V, S>> for SyncSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Send + Sync,
-    S: BuildHasher
+    S: BuildHasher,
 {
     /// Creates a new thread-safe cache from an existing `SieveCache`.
     ///
@@ -167,7 +168,7 @@ impl<K, V, S> IntoIterator for SyncSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Clone + Send + Sync,
-    S: BuildHasher
+    S: BuildHasher,
 {
     type Item = (K, V);
     type IntoIter = std::vec::IntoIter<(K, V)>;
@@ -221,7 +222,7 @@ impl<K, V, S> SyncSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Send + Sync,
-    S: BuildHasher
+    S: BuildHasher,
 {
     /// Creates a new thread-safe cache with the given capacity using a custom hash builder.
     ///

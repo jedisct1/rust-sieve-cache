@@ -675,7 +675,12 @@ mod weighted_sharded_tests {
         use std::hash::BuildHasherDefault;
 
         let cache: WeightedShardedSieveCache<String, i32, _> =
-            WeightedShardedSieveCache::new_with_hasher(10, 1000, BuildHasherDefault::<DefaultHasher>::new()).unwrap();
+            WeightedShardedSieveCache::new_with_hasher(
+                10,
+                1000,
+                BuildHasherDefault::<DefaultHasher>::new(),
+            )
+            .unwrap();
 
         // Test insert and get with custom hasher
         assert!(cache.insert("a".to_string(), 1));
@@ -723,7 +728,10 @@ mod weighted_sharded_tests {
         // Test weight and operations
         assert!(cache.current_weight() > 0);
 
-        assert_eq!(cache.remove(&"key2".to_string()), Some("value2".to_string()));
+        assert_eq!(
+            cache.remove(&"key2".to_string()),
+            Some("value2".to_string())
+        );
         assert!(!cache.contains_key(&"key2".to_string()));
         assert_eq!(cache.len(), 3);
     }

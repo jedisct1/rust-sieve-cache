@@ -29,12 +29,12 @@ pub struct WeightedShardedSieveCache<K, V, S = RandomState>
 where
     K: Eq + Hash + Clone + Weigh + Send + Sync,
     V: Weigh + Send + Sync,
-    S: BuildHasher + Clone
+    S: BuildHasher + Clone,
 {
     shards: Vec<Arc<Mutex<WeightedSieveCache<K, V, S>>>>,
     num_shards: usize,
     max_weight: usize,
-    hasher: S
+    hasher: S,
 }
 
 impl<K, V> WeightedShardedSieveCache<K, V>
@@ -65,7 +65,7 @@ impl<K, V, S> WeightedShardedSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Weigh + Send + Sync,
     V: Weigh + Send + Sync,
-    S: BuildHasher + Clone
+    S: BuildHasher + Clone,
 {
     /// Creates a new sharded weighted cache with the default number of shards (16) and a custom hash builder.
     ///
@@ -76,7 +76,11 @@ where
     /// * `hasher` - A hash builder instance (e.g., from `ahash::AHasher` or `std::collections::hash_map::RandomState`)
     ///
     /// Returns `Err` if `capacity` or `max_weight` is 0.
-    pub fn new_with_hasher(capacity: usize, max_weight: usize, hasher: S) -> Result<Self, &'static str> {
+    pub fn new_with_hasher(
+        capacity: usize,
+        max_weight: usize,
+        hasher: S,
+    ) -> Result<Self, &'static str> {
         Self::with_shards_and_hasher(capacity, max_weight, DEFAULT_SHARDS, hasher)
     }
 
@@ -96,7 +100,7 @@ where
         capacity: usize,
         max_weight: usize,
         num_shards: usize,
-        hasher: S
+        hasher: S,
     ) -> Result<Self, &'static str> {
         if capacity == 0 {
             return Err("capacity must be greater than 0");
@@ -133,7 +137,8 @@ where
             };
             // base_weight >= 1 is guaranteed by the max_weight >= num_shards check above
 
-            let cache = WeightedSieveCache::new_with_hasher(shard_capacity, shard_weight, hasher.clone())?;
+            let cache =
+                WeightedSieveCache::new_with_hasher(shard_capacity, shard_weight, hasher.clone())?;
             shards.push(Arc::new(Mutex::new(cache)));
         }
 
@@ -141,7 +146,7 @@ where
             shards,
             num_shards,
             max_weight,
-            hasher
+            hasher,
         })
     }
 

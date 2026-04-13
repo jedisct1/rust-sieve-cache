@@ -78,9 +78,9 @@ pub mod _docs_sharded_usage {
     //!   are distributed across many different keys
 }
 
-use std::{borrow::Borrow, hash::BuildHasher};
 use std::collections::HashMap;
 use std::hash::{Hash, RandomState};
+use std::{borrow::Borrow, hash::BuildHasher};
 
 #[cfg(feature = "sharded")]
 mod sharded;
@@ -1401,8 +1401,7 @@ fn test_custom_hasher_sievecache() {
     use std::hash::BuildHasherDefault;
 
     let hasher = BuildHasherDefault::<DefaultHasher>::default();
-    let mut cache: SieveCache<String, String, _> =
-        SieveCache::new_with_hasher(10, hasher).unwrap();
+    let mut cache: SieveCache<String, String, _> = SieveCache::new_with_hasher(10, hasher).unwrap();
 
     // Test basic insert and get operations with custom hasher
     assert!(cache.insert("key1".to_string(), "value1".to_string()));

@@ -125,20 +125,20 @@ pub struct ShardedSieveCache<K, V, S = RandomState>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Send + Sync,
-    S: BuildHasher + Clone
+    S: BuildHasher + Clone,
 {
     /// Array of shard mutexes, each containing a separate SieveCache instance
     shards: Vec<Arc<Mutex<SieveCache<K, V, S>>>>,
     /// Number of shards in the cache - kept as a separate field for quick access
     num_shards: usize,
-    hasher: S
+    hasher: S,
 }
 
 impl<K, V, S> Default for ShardedSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Send + Sync,
-    S: BuildHasher + Clone + Default
+    S: BuildHasher + Clone + Default,
 {
     /// Creates a new sharded cache with a default capacity of 100 entries and default number of shards.
     ///
@@ -157,7 +157,8 @@ where
     /// assert_eq!(cache.num_shards(), 16); // Default shard count
     /// ```
     fn default() -> Self {
-        Self::new_with_hasher(100, Default::default()).expect("Failed to create cache with default capacity")
+        Self::new_with_hasher(100, Default::default())
+            .expect("Failed to create cache with default capacity")
     }
 }
 
@@ -165,7 +166,7 @@ impl<K, V, S> fmt::Debug for ShardedSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync + fmt::Debug,
     V: Send + Sync + fmt::Debug,
-    S: BuildHasher + Clone
+    S: BuildHasher + Clone,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ShardedSieveCache")
@@ -180,7 +181,7 @@ impl<K, V, S> IntoIterator for ShardedSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Clone + Send + Sync,
-    S: BuildHasher + Clone
+    S: BuildHasher + Clone,
 {
     type Item = (K, V);
     type IntoIter = std::vec::IntoIter<(K, V)>;
@@ -213,7 +214,7 @@ impl<K, V, S> From<crate::SyncSieveCache<K, V, S>> for ShardedSieveCache<K, V, S
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Clone + Send + Sync,
-    S: BuildHasher + Clone + Default
+    S: BuildHasher + Clone + Default,
 {
     /// Creates a new sharded cache from an existing `SyncSieveCache`.
     ///
@@ -233,7 +234,8 @@ where
     fn from(sync_cache: crate::SyncSieveCache<K, V, S>) -> Self {
         // Create a new sharded cache with the same capacity
         let capacity = sync_cache.capacity();
-        let sharded = Self::new_with_hasher(capacity, Default::default()).expect("Failed to create sharded cache");
+        let sharded = Self::new_with_hasher(capacity, Default::default())
+            .expect("Failed to create sharded cache");
 
         // Transfer all entries
         for (key, value) in sync_cache.entries() {
@@ -268,7 +270,7 @@ where
     pub fn new(capacity: usize) -> Result<Self, &'static str> {
         Self::with_shards(capacity, DEFAULT_SHARDS)
     }
-    
+
     /// Creates a new sharded cache with the specified capacity and number of shards.
     ///
     /// The capacity will be divided among the shards, distributing any remainder to ensure
@@ -308,7 +310,7 @@ impl<K, V, S> ShardedSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Send + Sync,
-    S: BuildHasher + Clone
+    S: BuildHasher + Clone,
 {
     /// Creates a new sharded cache with the specified capacity using a custom hash builder and default number of shards.
     ///
@@ -337,7 +339,7 @@ where
     pub fn new_with_hasher(capacity: usize, hasher: S) -> Result<Self, &'static str> {
         Self::with_shards_and_hasher(capacity, DEFAULT_SHARDS, hasher)
     }
- 
+
     /// Creates a new sharded cache with the specified capacity, number of shards, and custom hash builder.
     ///
     /// The capacity will be divided among the shards, distributing any remainder to ensure
@@ -372,7 +374,11 @@ where
     /// assert_eq!(cache.num_shards(), 8);
     /// assert!(cache.capacity() >= 1000);
     /// ```
-    pub fn with_shards_and_hasher(capacity: usize, num_shards: usize, hasher: S) -> Result<Self, &'static str> {
+    pub fn with_shards_and_hasher(
+        capacity: usize,
+        num_shards: usize,
+        hasher: S,
+    ) -> Result<Self, &'static str> {
         if capacity == 0 {
             return Err("capacity must be greater than 0");
         }
@@ -395,10 +401,17 @@ where
 
             // Ensure at least capacity 1 per shard
             let shard_capacity = std::cmp::max(1, shard_capacity);
-            shards.push(Arc::new(Mutex::new(SieveCache::new_with_hasher(shard_capacity, hasher.clone())?)));
+            shards.push(Arc::new(Mutex::new(SieveCache::new_with_hasher(
+                shard_capacity,
+                hasher.clone(),
+            )?)));
         }
 
-        Ok(Self { shards, num_shards, hasher })
+        Ok(Self {
+            shards,
+            num_shards,
+            hasher,
+        })
     }
 
     /// Returns the shard index for a given key.
@@ -1786,9 +1799,10 @@ mod tests {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::BuildHasherDefault;
 
-        // Test with custom hasher and default shard count  
+        // Test with custom hasher and default shard count
         let cache: ShardedSieveCache<String, i32, _> =
-            ShardedSieveCache::new_with_hasher(10, BuildHasherDefault::<DefaultHasher>::new()).unwrap();
+            ShardedSieveCache::new_with_hasher(10, BuildHasherDefault::<DefaultHasher>::new())
+                .unwrap();
 
         // Test basic insert operations
         assert!(cache.insert("a".to_string(), 1));
@@ -1800,10 +1814,10 @@ mod tests {
         assert_eq!(cache.get(&"b".to_string()), Some(2));
         assert_eq!(cache.get(&"c".to_string()), Some(3));
 
-        // Test remove 
+        // Test remove
         assert_eq!(cache.remove(&"a".to_string()), Some(1));
         assert_eq!(cache.get(&"a".to_string()), None);
-        
+
         // Test contains
         assert!(cache.contains_key(&"b".to_string()));
         assert!(!cache.contains_key(&"a".to_string()));
@@ -1831,7 +1845,10 @@ mod tests {
         assert_eq!(cache.get(&"key4".to_string()), Some("value4".to_string()));
 
         // Test remove and contains_key
-        assert_eq!(cache.remove(&"key2".to_string()), Some("value2".to_string()));
+        assert_eq!(
+            cache.remove(&"key2".to_string()),
+            Some("value2".to_string())
+        );
         assert!(!cache.contains_key(&"key2".to_string()));
         assert_eq!(cache.len(), 3);
     }

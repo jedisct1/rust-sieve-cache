@@ -120,7 +120,8 @@ impl Weigh for &[u8] {
 /// empties the cache and then inserts the oversized entry as the sole
 /// occupant. This means `current_weight` can temporarily exceed
 /// `max_weight` by at most the weight of one entry.
-pub struct WeightedSieveCache<K: Eq + Hash + Clone + Weigh, V: Weigh, S: BuildHasher = RandomState> {
+pub struct WeightedSieveCache<K: Eq + Hash + Clone + Weigh, V: Weigh, S: BuildHasher = RandomState>
+{
     inner: SieveCache<K, V, S>,
     /// Per-entry charged weight, snapshotted at insert time. This is the
     /// weight that will be subtracted when the entry is removed or evicted,
@@ -157,7 +158,11 @@ impl<K: Eq + Hash + Clone + Weigh, V: Weigh, S: BuildHasher + Clone> WeightedSie
     /// * `hasher` - A hash builder instance (e.g., from `ahash::AHasher` or `std::collections::hash_map::RandomState`)
     ///
     /// Returns `Err` if `capacity` is 0 or `max_weight` is 0.
-    pub fn new_with_hasher(capacity: usize, max_weight: usize, hasher: S) -> Result<Self, &'static str> {
+    pub fn new_with_hasher(
+        capacity: usize,
+        max_weight: usize,
+        hasher: S,
+    ) -> Result<Self, &'static str> {
         if max_weight == 0 {
             return Err("max_weight must be greater than zero");
         }
