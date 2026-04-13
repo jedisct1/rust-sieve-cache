@@ -383,6 +383,38 @@ mod weighted_tests {
         assert!(evicted.is_some());
         assert_eq!(cache.current_weight(), 0);
     }
+
+    #[test]
+    fn custom_hasher_weighted_sievecache() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::BuildHasherDefault;
+
+        let hasher = BuildHasherDefault::<DefaultHasher>::default();
+        let mut cache: WeightedSieveCache<String, String, _> =
+            WeightedSieveCache::new_with_hasher(5, 1000, hasher).unwrap();
+
+        // Test insert and get with custom hasher
+        assert!(cache.insert("key1".to_string(), "value1".to_string()));
+        assert!(cache.insert("key2".to_string(), "value2".to_string()));
+
+        // Verify values are retrievable
+        assert_eq!(cache.get("key1"), Some(&"value1".to_string()));
+        assert_eq!(cache.get("key2"), Some(&"value2".to_string()));
+
+        // Test weight tracking with custom hasher
+        let initial_weight = cache.current_weight();
+        assert!(initial_weight > 0);
+
+        // Test remove and weight decrease
+        cache.remove("key1");
+        assert_eq!(cache.get("key1"), None);
+        let weight_after_remove = cache.current_weight();
+        assert!(weight_after_remove < initial_weight);
+
+        // Test contains_key
+        assert!(cache.contains_key("key2"));
+        assert!(!cache.contains_key("key1"));
+    }
 }
 
 #[cfg(all(feature = "weighted", feature = "sync"))]
@@ -462,6 +494,35 @@ mod weighted_sync_tests {
         let r: Result<WeightedSyncSieveCache<String, String>, _> =
             WeightedSyncSieveCache::new(10, 0);
         assert!(r.is_err());
+    }
+
+    #[test]
+    fn custom_hasher_weighted_sync_sievecache() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::BuildHasherDefault;
+
+        let hasher = BuildHasherDefault::<DefaultHasher>::default();
+        let cache: WeightedSyncSieveCache<String, String, _> =
+            WeightedSyncSieveCache::new_with_hasher(5, 1000, hasher).unwrap();
+
+        // Test thread-safe insert and get with custom hasher
+        assert!(cache.insert("key1".to_string(), "value1".to_string()));
+        assert!(cache.insert("key2".to_string(), "value2".to_string()));
+
+        // Verify values are retrievable
+        assert_eq!(cache.get(&"key1".to_string()), Some("value1".to_string()));
+        assert_eq!(cache.get(&"key2".to_string()), Some("value2".to_string()));
+
+        // Test weight tracking with custom hasher
+        assert!(cache.current_weight() > 0);
+
+        // Test remove
+        cache.remove(&"key1".to_string());
+        assert_eq!(cache.get(&"key1".to_string()), None);
+
+        // Test contains_key
+        assert!(cache.contains_key(&"key2".to_string()));
+        assert!(!cache.contains_key(&"key1".to_string()));
     }
 }
 
@@ -606,5 +667,64 @@ mod weighted_sharded_tests {
         assert!(pair.is_some());
         let (k, _) = pair.unwrap();
         assert!(!cache.contains_key(&k));
+    }
+
+    #[test]
+    fn custom_hasher_weighted_sharded_sievecache() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::BuildHasherDefault;
+
+        let cache: WeightedShardedSieveCache<String, i32, _> =
+            WeightedShardedSieveCache::new_with_hasher(10, 1000, BuildHasherDefault::<DefaultHasher>::new()).unwrap();
+
+        // Test insert and get with custom hasher
+        assert!(cache.insert("a".to_string(), 1));
+        assert!(cache.insert("b".to_string(), 2));
+        assert!(cache.insert("c".to_string(), 3));
+
+        // Verify values are retrievable
+        assert_eq!(cache.get(&"a".to_string()), Some(1));
+        assert_eq!(cache.get(&"b".to_string()), Some(2));
+        assert_eq!(cache.get(&"c".to_string()), Some(3));
+
+        // Test weight tracking
+        assert!(cache.current_weight() > 0);
+
+        // Test remove
+        assert_eq!(cache.remove(&"a".to_string()), Some(1));
+        assert_eq!(cache.get(&"a".to_string()), None);
+
+        // Test contains_key
+        assert!(cache.contains_key(&"b".to_string()));
+        assert!(!cache.contains_key(&"a".to_string()));
+    }
+
+    #[test]
+    fn custom_hasher_weighted_sharded_sievecache_with_shards() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::BuildHasherDefault;
+
+        let hasher = BuildHasherDefault::<DefaultHasher>::default();
+        let cache: WeightedShardedSieveCache<String, String, _> =
+            WeightedShardedSieveCache::with_shards_and_hasher(10, 1000, 4, hasher).unwrap();
+
+        // Test insert and get with custom hasher and custom shard count
+        assert!(cache.insert("key1".to_string(), "value1".to_string()));
+        assert!(cache.insert("key2".to_string(), "value2".to_string()));
+        assert!(cache.insert("key3".to_string(), "value3".to_string()));
+        assert!(cache.insert("key4".to_string(), "value4".to_string()));
+
+        // Verify values are retrievable
+        assert_eq!(cache.get(&"key1".to_string()), Some("value1".to_string()));
+        assert_eq!(cache.get(&"key2".to_string()), Some("value2".to_string()));
+        assert_eq!(cache.get(&"key3".to_string()), Some("value3".to_string()));
+        assert_eq!(cache.get(&"key4".to_string()), Some("value4".to_string()));
+
+        // Test weight and operations
+        assert!(cache.current_weight() > 0);
+
+        assert_eq!(cache.remove(&"key2".to_string()), Some("value2".to_string()));
+        assert!(!cache.contains_key(&"key2".to_string()));
+        assert_eq!(cache.len(), 3);
     }
 }

@@ -1114,6 +1114,35 @@ mod tests {
     }
 
     #[test]
+    fn test_custom_hasher_sync_sievecache() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::BuildHasherDefault;
+
+        let hasher = BuildHasherDefault::<DefaultHasher>::default();
+        let cache: SyncSieveCache<String, String, _> =
+            SyncSieveCache::new_with_hasher(3, hasher).unwrap();
+
+        // Test thread-safe insert and get with custom hasher
+        assert!(cache.insert("key1".to_string(), "value1".to_string()));
+        assert!(cache.insert("key2".to_string(), "value2".to_string()));
+        assert!(cache.insert("key3".to_string(), "value3".to_string()));
+
+        // Verify values are retrievable
+        assert_eq!(cache.get(&"key1".to_string()), Some("value1".to_string()));
+        assert_eq!(cache.get(&"key2".to_string()), Some("value2".to_string()));
+        assert_eq!(cache.get(&"key3".to_string()), Some("value3".to_string()));
+
+        // Test remove with custom hasher
+        cache.remove(&"key1".to_string());
+        assert_eq!(cache.get(&"key1".to_string()), None);
+        assert_eq!(cache.len(), 2);
+
+        // Test contains_key
+        assert!(cache.contains_key(&"key2".to_string()));
+        assert!(!cache.contains_key(&"key1".to_string()));
+    }
+
+    #[test]
     fn test_keys_values_entries() {
         let cache = SyncSieveCache::new(10).unwrap();
         cache.insert("key1".to_string(), "value1".to_string());

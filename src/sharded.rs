@@ -12,7 +12,7 @@ const DEFAULT_SHARDS: usize = 16;
 /// A thread-safe implementation of `SieveCache` that uses multiple shards to reduce contention.
 ///
 /// This provides better concurrency than `SyncSieveCache` by splitting the cache into multiple
-/// independent shards, each protected by its own mutex. Operations on different shards can
+/// independent shards, each priotected by its own mutex. Operations on different shards can
 /// proceed in parallel, which can significantly improve throughput in multi-threaded environments.
 ///
 /// # How Sharding Works
@@ -1779,5 +1779,60 @@ mod tests {
         assert_eq!(cache.get(&"keyA_1".to_string()), Some(11)); // 1 + 10
         assert_eq!(cache.get(&"keyB_2".to_string()), Some(22)); // 2 + 20
         assert_eq!(cache.get(&"keyC_3".to_string()), Some(3));
+    }
+
+    #[test]
+    fn test_custom_hasher_sharded_sievecache() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::BuildHasherDefault;
+
+        // Test with custom hasher and default shard count  
+        let cache: ShardedSieveCache<String, i32, _> =
+            ShardedSieveCache::new_with_hasher(10, BuildHasherDefault::<DefaultHasher>::new()).unwrap();
+
+        // Test basic insert operations
+        assert!(cache.insert("a".to_string(), 1));
+        assert!(cache.insert("b".to_string(), 2));
+        assert!(cache.insert("c".to_string(), 3));
+
+        // Verify values can be retrieved
+        assert_eq!(cache.get(&"a".to_string()), Some(1));
+        assert_eq!(cache.get(&"b".to_string()), Some(2));
+        assert_eq!(cache.get(&"c".to_string()), Some(3));
+
+        // Test remove 
+        assert_eq!(cache.remove(&"a".to_string()), Some(1));
+        assert_eq!(cache.get(&"a".to_string()), None);
+        
+        // Test contains
+        assert!(cache.contains_key(&"b".to_string()));
+        assert!(!cache.contains_key(&"a".to_string()));
+    }
+
+    #[test]
+    fn test_custom_hasher_sharded_sievecache_with_shards() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::BuildHasherDefault;
+
+        let hasher = BuildHasherDefault::<DefaultHasher>::default();
+        let cache: ShardedSieveCache<String, String, _> =
+            ShardedSieveCache::with_shards_and_hasher(10, 4, hasher).unwrap();
+
+        // Test insert and get with custom hasher and custom shard count
+        assert!(cache.insert("key1".to_string(), "value1".to_string()));
+        assert!(cache.insert("key2".to_string(), "value2".to_string()));
+        assert!(cache.insert("key3".to_string(), "value3".to_string()));
+        assert!(cache.insert("key4".to_string(), "value4".to_string()));
+
+        // Verify values are retrievable
+        assert_eq!(cache.get(&"key1".to_string()), Some("value1".to_string()));
+        assert_eq!(cache.get(&"key2".to_string()), Some("value2".to_string()));
+        assert_eq!(cache.get(&"key3".to_string()), Some("value3".to_string()));
+        assert_eq!(cache.get(&"key4".to_string()), Some("value4".to_string()));
+
+        // Test remove and contains_key
+        assert_eq!(cache.remove(&"key2".to_string()), Some("value2".to_string()));
+        assert!(!cache.contains_key(&"key2".to_string()));
+        assert_eq!(cache.len(), 3);
     }
 }

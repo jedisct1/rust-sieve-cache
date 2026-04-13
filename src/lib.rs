@@ -1394,3 +1394,32 @@ fn insert_never_exceeds_capacity_when_all_visited() {
     // This is our an invariant
     assert!(c.len() <= c.capacity());
 }
+
+#[test]
+fn test_custom_hasher_sievecache() {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::BuildHasherDefault;
+
+    let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    let mut cache: SieveCache<String, String, _> =
+        SieveCache::new_with_hasher(10, hasher).unwrap();
+
+    // Test basic insert and get operations with custom hasher
+    assert!(cache.insert("key1".to_string(), "value1".to_string()));
+    assert!(cache.insert("key2".to_string(), "value2".to_string()));
+    assert!(cache.insert("key3".to_string(), "value3".to_string()));
+
+    // Verify values are retrievable
+    assert_eq!(cache.get("key1"), Some(&"value1".to_string()));
+    assert_eq!(cache.get("key2"), Some(&"value2".to_string()));
+    assert_eq!(cache.get("key3"), Some(&"value3".to_string()));
+
+    // Test remove with custom hasher
+    assert_eq!(cache.remove("key1"), Some("value1".to_string()));
+    assert_eq!(cache.get("key1"), None);
+    assert_eq!(cache.len(), 2);
+
+    // Test contains_key
+    assert!(cache.contains_key("key2"));
+    assert!(!cache.contains_key("key1"));
+}
