@@ -164,7 +164,7 @@ impl<K: Eq + Hash + Clone + Weigh, V: Weigh, S: BuildHasher + Clone> WeightedSie
         let inner = SieveCache::new_with_hasher(capacity, hasher.clone())?;
         Ok(Self {
             inner,
-            charged: HashMap::with_hasher(hasher),
+            charged: HashMap::with_capacity_and_hasher(capacity, hasher),
             max_weight,
             current_weight: 0,
         })
