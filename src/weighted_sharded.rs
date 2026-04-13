@@ -30,11 +30,12 @@ pub struct WeightedShardedSieveCache<K, V, S = RandomState>
 where
     K: Eq + Hash + Clone + Weigh + Send + Sync,
     V: Weigh + Send + Sync,
-    S: BuildHasher
+    S: BuildHasher + Clone
 {
     shards: Vec<Arc<Mutex<WeightedSieveCache<K, V, S>>>>,
     num_shards: usize,
     max_weight: usize,
+    hasher: S
 }
 
 impl<K, V> WeightedShardedSieveCache<K, V>
@@ -141,6 +142,7 @@ where
             shards,
             num_shards,
             max_weight,
+            hasher
         })
     }
 
@@ -149,7 +151,7 @@ where
     where
         Q: Hash + ?Sized,
     {
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = self.hasher.build_hasher();
         key.hash(&mut hasher);
         let hash = hasher.finish() as usize;
         hash % self.num_shards
