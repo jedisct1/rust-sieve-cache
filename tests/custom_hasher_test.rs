@@ -1,6 +1,5 @@
 mod custom_hasher_test {
-    use core::hash;
-    use std::{cell::RefCell, hash::{BuildHasher, Hash, Hasher}, rc::Rc, sync::Arc};
+    use std::{cell::RefCell, hash::{BuildHasher, Hasher}, rc::Rc};
 
     use sieve_cache::{SieveCache, SyncSieveCache};
 

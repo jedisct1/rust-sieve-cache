@@ -1,5 +1,4 @@
 use std::borrow::Borrow;
-use std::collections::hash_map::DefaultHasher;
 use std::hash::{BuildHasher, Hash, Hasher, RandomState};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
