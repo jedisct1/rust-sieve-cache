@@ -125,7 +125,7 @@ pub struct WeightedSieveCache<K: Eq + Hash + Clone + Weigh, V: Weigh, S: BuildHa
     /// Per-entry charged weight, snapshotted at insert time. This is the
     /// weight that will be subtracted when the entry is removed or evicted,
     /// regardless of any mutations via `get_mut`.
-    charged: HashMap<K, usize>,
+    charged: HashMap<K, usize, S>,
     max_weight: usize,
     current_weight: usize,
 }
@@ -143,7 +143,7 @@ impl<K: Eq + Hash + Clone + Weigh, V: Weigh> WeightedSieveCache<K, V> {
     }
 }
 
-impl<K: Eq + Hash + Clone + Weigh, V: Weigh, S: BuildHasher> WeightedSieveCache<K, V, S> {
+impl<K: Eq + Hash + Clone + Weigh, V: Weigh, S: BuildHasher + Clone> WeightedSieveCache<K, V, S> {
     /// Creates a new weighted cache using a custom hash builder.
     ///
     /// `capacity` is the maximum number of entries (passed to the inner
@@ -161,10 +161,10 @@ impl<K: Eq + Hash + Clone + Weigh, V: Weigh, S: BuildHasher> WeightedSieveCache<
         if max_weight == 0 {
             return Err("max_weight must be greater than zero");
         }
-        let inner = SieveCache::new_with_hasher(capacity, hasher)?;
+        let inner = SieveCache::new_with_hasher(capacity, hasher.clone())?;
         Ok(Self {
             inner,
-            charged: HashMap::new(),
+            charged: HashMap::with_hasher(hasher),
             max_weight,
             current_weight: 0,
         })

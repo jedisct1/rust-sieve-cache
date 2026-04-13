@@ -46,7 +46,7 @@ impl<K, V, S> WeightedSyncSieveCache<K, V, S>
 where
     K: Eq + Hash + Clone + Weigh + Send + Sync,
     V: Weigh + Send + Sync,
-    S: BuildHasher
+    S: BuildHasher + Clone
 {
     /// Creates a new thread-safe weighted cache with a custom hash builder.
     ///

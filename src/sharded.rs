@@ -1,6 +1,5 @@
 use crate::SieveCache;
 use std::borrow::Borrow;
-use std::collections::hash_map::DefaultHasher;
 use std::fmt;
 use std::hash::{BuildHasher, Hash, Hasher, RandomState};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -126,12 +125,13 @@ pub struct ShardedSieveCache<K, V, S = RandomState>
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Send + Sync,
-    S: BuildHasher
+    S: BuildHasher + Clone
 {
     /// Array of shard mutexes, each containing a separate SieveCache instance
     shards: Vec<Arc<Mutex<SieveCache<K, V, S>>>>,
     /// Number of shards in the cache - kept as a separate field for quick access
     num_shards: usize,
+    hasher: S
 }
 
 impl<K, V, S> Default for ShardedSieveCache<K, V, S>
@@ -398,7 +398,7 @@ where
             shards.push(Arc::new(Mutex::new(SieveCache::new_with_hasher(shard_capacity, hasher.clone())?)));
         }
 
-        Ok(Self { shards, num_shards })
+        Ok(Self { shards, num_shards, hasher })
     }
 
     /// Returns the shard index for a given key.
@@ -410,7 +410,7 @@ where
     where
         Q: Hash + ?Sized,
     {
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = self.hasher.build_hasher();
         key.hash(&mut hasher);
         let hash = hasher.finish() as usize;
         hash % self.num_shards
