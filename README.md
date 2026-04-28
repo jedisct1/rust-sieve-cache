@@ -105,47 +105,51 @@ These implementations are available when using the appropriate feature flags:
 For concurrent access from multiple threads, you can use the `SyncSieveCache` wrapper, which provides thread safety with a single global lock:
 
 ```rust
-use sieve_cache::SyncSieveCache;
-use std::thread;
-
-// Create a thread-safe cache
-let cache = SyncSieveCache::new(100000).unwrap();
-
-// The cache can be safely cloned and shared between threads
-let cache_clone = cache.clone();
-
-// Insert from the main thread
-cache.insert("foo".to_string(), "foocontent".to_string());
-
-// Access from another thread
-let handle = thread::spawn(move || {
-    // Insert a new key
-    cache_clone.insert("bar".to_string(), "barcontent".to_string());
-
-    // Get returns a clone of the value, not a reference (unlike non-thread-safe version)
-    assert_eq!(cache_clone.get(&"foo".to_string()), Some("foocontent".to_string()));
-});
-
-// Wait for the thread to complete
-handle.join().unwrap();
-
-// Check if keys exist
-assert!(cache.contains_key(&"foo".to_string()));
-assert!(cache.contains_key(&"bar".to_string()));
-
-// Remove an entry
-let removed = cache.remove(&"bar".to_string());
-assert_eq!(removed, Some("barcontent".to_string()));
-
-// Perform multiple operations atomically with exclusive access
-cache.with_lock(|inner_cache| {
-    // Operations inside this closure have exclusive access to the cache
-    inner_cache.insert("atomic1".to_string(), "value1".to_string());
-    inner_cache.insert("atomic2".to_string(), "value2".to_string());
-
-    // We can check internal state as part of the transaction
-    assert_eq!(inner_cache.len(), 3);
-});
+// the line below is required for doctests, you will rarely need to wrap code like this.
+# #[cfg(feature = "sync")]
+{
+    use sieve_cache::SyncSieveCache;
+    use std::thread;
+    
+    // Create a thread-safe cache
+    let cache = SyncSieveCache::new(100000).unwrap();
+    
+    // The cache can be safely cloned and shared between threads
+    let cache_clone = cache.clone();
+    
+    // Insert from the main thread
+    cache.insert("foo".to_string(), "foocontent".to_string());
+    
+    // Access from another thread
+    let handle = thread::spawn(move || {
+        // Insert a new key
+        cache_clone.insert("bar".to_string(), "barcontent".to_string());
+    
+        // Get returns a clone of the value, not a reference (unlike non-thread-safe version)
+        assert_eq!(cache_clone.get(&"foo".to_string()), Some("foocontent".to_string()));
+    });
+    
+    // Wait for the thread to complete
+    handle.join().unwrap();
+    
+    // Check if keys exist
+    assert!(cache.contains_key(&"foo".to_string()));
+    assert!(cache.contains_key(&"bar".to_string()));
+    
+    // Remove an entry
+    let removed = cache.remove(&"bar".to_string());
+    assert_eq!(removed, Some("barcontent".to_string()));
+    
+    // Perform multiple operations atomically with exclusive access
+    cache.with_lock(|inner_cache| {
+        // Operations inside this closure have exclusive access to the cache
+        inner_cache.insert("atomic1".to_string(), "value1".to_string());
+        inner_cache.insert("atomic2".to_string(), "value2".to_string());
+    
+        // We can check internal state as part of the transaction
+        assert_eq!(inner_cache.len(), 3);
+    });
+}
 ```
 
 Key differences from the non-thread-safe version:
@@ -158,59 +162,63 @@ Key differences from the non-thread-safe version:
 For applications with high concurrency requirements, the `ShardedSieveCache` implementation uses multiple internal locks (sharding) to reduce contention and improve throughput:
 
 ```rust
-use sieve_cache::ShardedSieveCache;
-use std::thread;
-use std::sync::Arc;
-
-// Create a sharded cache with default shard count (16)
-// We use Arc for sharing between threads
-let cache = Arc::new(ShardedSieveCache::new(100000).unwrap());
-
-// Alternatively, specify a custom number of shards
-// let cache = Arc::new(ShardedSieveCache::with_shards(100000, 32).unwrap());
-
-// Insert data from the main thread
-cache.insert("foo".to_string(), "foocontent".to_string());
-
-// Use multiple worker threads to insert data concurrently
-let mut handles = vec![];
-for i in 0..8 {
-    let cache_clone = Arc::clone(&cache);
-    let handle = thread::spawn(move || {
-        // Each thread inserts multiple values
-        for j in 0..100 {
-            let key = format!("key_thread{}_item{}", i, j);
-            let value = format!("value_{}", j);
-            cache_clone.insert(key, value);
-        }
+// the line below is required for doctests, you will rarely need to wrap code like this.
+# #[cfg(feature = "sharded")]
+{
+    use sieve_cache::ShardedSieveCache;
+    use std::thread;
+    use std::sync::Arc;
+    
+    // Create a sharded cache with default shard count (16)
+    // We use Arc for sharing between threads
+    let cache = Arc::new(ShardedSieveCache::new(100000).unwrap());
+    
+    // Alternatively, specify a custom number of shards
+    // let cache = Arc::new(ShardedSieveCache::with_shards(100000, 32).unwrap());
+    
+    // Insert data from the main thread
+    cache.insert("foo".to_string(), "foocontent".to_string());
+    
+    // Use multiple worker threads to insert data concurrently
+    let mut handles = vec![];
+    for i in 0..8 {
+        let cache_clone = Arc::clone(&cache);
+        let handle = thread::spawn(move || {
+            // Each thread inserts multiple values
+            for j in 0..100 {
+                let key = format!("key_thread{}_item{}", i, j);
+                let value = format!("value_{}", j);
+                cache_clone.insert(key, value);
+            }
+        });
+        handles.push(handle);
+    }
+    
+    // Wait for all threads to complete
+    for handle in handles {
+        handle.join().unwrap();
+    }
+    
+    // Shard-specific atomic operations
+    // with_key_lock locks only the shard containing the key
+    cache.with_key_lock(&"foo", |shard| {
+        // Operations inside this closure have exclusive access to the specific shard
+        shard.insert("related_key1".to_string(), "value1".to_string());
+        shard.insert("related_key2".to_string(), "value2".to_string());
+    
+        // We can check internal state within the transaction
+        assert!(shard.contains_key(&"related_key1".to_string()));
     });
-    handles.push(handle);
+    
+    // Get the number of entries across all shards
+    // Note: This acquires all shard locks sequentially
+    let total_entries = cache.len();
+    assert_eq!(total_entries, 803); // 800 from threads + 1 "foo" + 2 related keys
+    
+    // Access shard information
+    println!("Cache has {} shards with total capacity {}",
+             cache.num_shards(), cache.capacity());
 }
-
-// Wait for all threads to complete
-for handle in handles {
-    handle.join().unwrap();
-}
-
-// Shard-specific atomic operations
-// with_key_lock locks only the shard containing the key
-cache.with_key_lock(&"foo", |shard| {
-    // Operations inside this closure have exclusive access to the specific shard
-    shard.insert("related_key1".to_string(), "value1".to_string());
-    shard.insert("related_key2".to_string(), "value2".to_string());
-
-    // We can check internal state within the transaction
-    assert!(shard.contains_key(&"related_key1".to_string()));
-});
-
-// Get the number of entries across all shards
-// Note: This acquires all shard locks sequentially
-let total_entries = cache.len();
-assert_eq!(total_entries, 803); // 800 from threads + 1 "foo" + 2 related keys
-
-// Access shard information
-println!("Cache has {} shards with total capacity {}",
-         cache.num_shards(), cache.capacity());
 ```
 
 #### How Sharding Works
@@ -230,24 +238,28 @@ The `weighted` feature (enabled by default) adds cache implementations that evic
 ### `WeightedSieveCache` - Single-Threaded
 
 ```rust
-use sieve_cache::{Weigh, WeightedSieveCache};
-
-// Create a cache that holds at most 10 entries and 1 KB of weight
-let mut cache = WeightedSieveCache::new(10, 1024).unwrap();
-
-cache.insert("key".to_string(), "value".to_string());
-assert!(cache.current_weight() > 0);
-assert!(cache.current_weight() <= cache.max_weight());
-
-// Weight is snapshotted at insert time.
-// Mutating via get_mut does not change the tracked weight.
-if let Some(v) = cache.get_mut("key") {
-    *v = "a much longer string".to_string();
+// the line below is required for doctests, you will rarely need to wrap code like this.
+# #[cfg(feature = "weighted")]
+{
+    use sieve_cache::{Weigh, WeightedSieveCache};
+    
+    // Create a cache that holds at most 10 entries and 1 KB of weight
+    let mut cache = WeightedSieveCache::new(10, 1024).unwrap();
+    
+    cache.insert("key".to_string(), "value".to_string());
+    assert!(cache.current_weight() > 0);
+    assert!(cache.current_weight() <= cache.max_weight());
+    
+    // Weight is snapshotted at insert time.
+    // Mutating via get_mut does not change the tracked weight.
+    if let Some(v) = cache.get_mut("key") {
+        *v = "a much longer string".to_string();
+    }
+    // current_weight still reflects the original "value"
+    
+    // Entries are evicted automatically when inserting would exceed max_weight.
+    // A single oversized entry is allowed as the sole occupant.
 }
-// current_weight still reflects the original "value"
-
-// Entries are evicted automatically when inserting would exceed max_weight.
-// A single oversized entry is allowed as the sole occupant.
 ```
 
 Thread-safe variants follow the same pattern as their non-weighted counterparts:
