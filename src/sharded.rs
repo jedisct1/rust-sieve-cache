@@ -1184,14 +1184,19 @@ mod tests {
 
     #[test]
     fn test_parallel_access() {
-        let cache = Arc::new(ShardedSieveCache::with_shards(1000, 16).unwrap());
+        const NUM_SHARDS: usize = 16;
+        const THREADS: usize = 8;
+        const PER_THREAD: usize = 100;
+        const TOTAL: usize = THREADS * PER_THREAD;
+
+        let cache =
+            Arc::new(ShardedSieveCache::with_shards(TOTAL * NUM_SHARDS, NUM_SHARDS).unwrap());
         let mut handles = vec![];
 
-        // Spawn 8 threads that each insert 100 items
-        for t in 0..8 {
+        for t in 0..THREADS {
             let cache_clone = Arc::clone(&cache);
             let handle = thread::spawn(move || {
-                for i in 0..100 {
+                for i in 0..PER_THREAD {
                     let key = format!("thread{}key{}", t, i);
                     let value = format!("value{}_{}", t, i);
                     cache_clone.insert(key, value);
@@ -1200,13 +1205,11 @@ mod tests {
             handles.push(handle);
         }
 
-        // Wait for all threads to complete
         for handle in handles {
             handle.join().unwrap();
         }
 
-        // Verify total item count
-        assert_eq!(cache.len(), 800);
+        assert_eq!(cache.len(), TOTAL);
 
         // Check a few random keys
         assert_eq!(
