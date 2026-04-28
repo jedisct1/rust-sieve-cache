@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::hash::Hash;
+use std::hash::{BuildHasher, Hash, RandomState};
 use std::mem;
 
 use crate::SieveCache;
@@ -108,18 +108,25 @@ impl Weigh for &[u8] {
 /// like moka and quick_cache. Users who need accurate tracking after
 /// mutation can `remove` + `insert`.
 ///
+/// # Type Parameters
+///
+/// * `K` - The key type, which must implement `Eq`, `Hash`, `Clone`, and `Weigh`
+/// * `V` - The value type, must implement `Weigh`
+/// * `S` - The hash builder type for the underlying `HashMap` (default: `RandomState`). Must implement `BuildHasher`
+///
 /// # Weight overshoot
 ///
 /// When a single entry's weight exceeds `max_weight`, the eviction loop
 /// empties the cache and then inserts the oversized entry as the sole
 /// occupant. This means `current_weight` can temporarily exceed
 /// `max_weight` by at most the weight of one entry.
-pub struct WeightedSieveCache<K: Eq + Hash + Clone + Weigh, V: Weigh> {
-    inner: SieveCache<K, V>,
+pub struct WeightedSieveCache<K: Eq + Hash + Clone + Weigh, V: Weigh, S: BuildHasher = RandomState>
+{
+    inner: SieveCache<K, V, S>,
     /// Per-entry charged weight, snapshotted at insert time. This is the
     /// weight that will be subtracted when the entry is removed or evicted,
     /// regardless of any mutations via `get_mut`.
-    charged: HashMap<K, usize>,
+    charged: HashMap<K, usize, S>,
     max_weight: usize,
     current_weight: usize,
 }
@@ -133,13 +140,36 @@ impl<K: Eq + Hash + Clone + Weigh, V: Weigh> WeightedSieveCache<K, V> {
     ///
     /// Returns `Err` if `capacity` is 0 or `max_weight` is 0.
     pub fn new(capacity: usize, max_weight: usize) -> Result<Self, &'static str> {
+        Self::new_with_hasher(capacity, max_weight, Default::default())
+    }
+}
+
+impl<K: Eq + Hash + Clone + Weigh, V: Weigh, S: BuildHasher + Clone> WeightedSieveCache<K, V, S> {
+    /// Creates a new weighted cache using a custom hash builder.
+    ///
+    /// `capacity` is the maximum number of entries (passed to the inner
+    /// `SieveCache`). `max_weight` is the memory budget in bytes — the
+    /// cache will evict entries to stay at or below this limit.
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - The maximum number of entries in the cache
+    /// * `max_weight` - The memory budget in bytes
+    /// * `hasher` - A hash builder instance (e.g., from `ahash::AHasher` or `std::collections::hash_map::RandomState`)
+    ///
+    /// Returns `Err` if `capacity` is 0 or `max_weight` is 0.
+    pub fn new_with_hasher(
+        capacity: usize,
+        max_weight: usize,
+        hasher: S,
+    ) -> Result<Self, &'static str> {
         if max_weight == 0 {
             return Err("max_weight must be greater than zero");
         }
-        let inner = SieveCache::new(capacity)?;
+        let inner = SieveCache::new_with_hasher(capacity, hasher.clone())?;
         Ok(Self {
             inner,
-            charged: HashMap::new(),
+            charged: HashMap::with_capacity_and_hasher(capacity, hasher),
             max_weight,
             current_weight: 0,
         })

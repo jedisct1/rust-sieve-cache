@@ -1,5 +1,5 @@
 use std::borrow::Borrow;
-use std::hash::Hash;
+use std::hash::{BuildHasher, Hash, RandomState};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::weighted::{Weigh, WeightedSieveCache};
@@ -11,15 +11,22 @@ use crate::weighted::{Weigh, WeightedSieveCache};
 /// thread safety. The weight bookkeeping lives inside the mutex alongside
 /// the cache data so that every mutation is atomic with respect to weight.
 ///
+/// # Type Parameters
+///
+/// * `K` - The key type, which must implement `Eq`, `Hash`, `Clone`, `Weigh`, `Send`, and `Sync`
+/// * `V` - The value type, must implement `Weigh`, `Send`, and `Sync`
+/// * `S` - The hash builder type for the underlying `HashMap` (default: `RandomState`). Must implement `BuildHasher`
+///
 /// For higher concurrency, see
 /// [`WeightedShardedSieveCache`](crate::WeightedShardedSieveCache).
 #[derive(Clone)]
-pub struct WeightedSyncSieveCache<K, V>
+pub struct WeightedSyncSieveCache<K, V, S = RandomState>
 where
     K: Eq + Hash + Clone + Weigh + Send + Sync,
     V: Weigh + Send + Sync,
+    S: BuildHasher,
 {
-    inner: Arc<Mutex<WeightedSieveCache<K, V>>>,
+    inner: Arc<Mutex<WeightedSieveCache<K, V, S>>>,
 }
 
 impl<K, V> WeightedSyncSieveCache<K, V>
@@ -31,14 +38,38 @@ where
     ///
     /// Returns `Err` if `capacity` or `max_weight` is 0.
     pub fn new(capacity: usize, max_weight: usize) -> Result<Self, &'static str> {
-        let cache = WeightedSieveCache::new(capacity, max_weight)?;
+        Self::new_with_hasher(capacity, max_weight, Default::default())
+    }
+}
+
+impl<K, V, S> WeightedSyncSieveCache<K, V, S>
+where
+    K: Eq + Hash + Clone + Weigh + Send + Sync,
+    V: Weigh + Send + Sync,
+    S: BuildHasher + Clone,
+{
+    /// Creates a new thread-safe weighted cache with a custom hash builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `capacity` - The maximum number of entries in the cache
+    /// * `max_weight` - The memory budget in bytes
+    /// * `hasher` - A hash builder instance (e.g., from `ahash::AHasher` or `std::collections::hash_map::RandomState`)
+    ///
+    /// Returns `Err` if `capacity` or `max_weight` is 0.
+    pub fn new_with_hasher(
+        capacity: usize,
+        max_weight: usize,
+        hasher: S,
+    ) -> Result<Self, &'static str> {
+        let cache = WeightedSieveCache::new_with_hasher(capacity, max_weight, hasher)?;
         Ok(Self {
             inner: Arc::new(Mutex::new(cache)),
         })
     }
 
     #[inline]
-    fn locked_cache(&self) -> MutexGuard<'_, WeightedSieveCache<K, V>> {
+    fn locked_cache(&self) -> MutexGuard<'_, WeightedSieveCache<K, V, S>> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -178,7 +209,7 @@ where
     /// Gets exclusive access to the underlying weighted cache.
     pub fn with_lock<F, T>(&self, f: F) -> T
     where
-        F: FnOnce(&mut WeightedSieveCache<K, V>) -> T,
+        F: FnOnce(&mut WeightedSieveCache<K, V, S>) -> T,
     {
         let mut guard = self.locked_cache();
         f(&mut guard)
