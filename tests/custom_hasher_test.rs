@@ -5,7 +5,9 @@ mod custom_hasher_test {
         rc::Rc,
     };
 
-    use sieve_cache::{SieveCache, SyncSieveCache};
+    use sieve_cache::SieveCache;
+    #[cfg(feature = "sync")] 
+    use sieve_cache::SyncSieveCache;
 
     #[derive(Clone)]
     struct CustomHasher {
