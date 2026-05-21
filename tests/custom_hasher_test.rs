@@ -6,7 +6,7 @@ mod custom_hasher_test {
     };
 
     use sieve_cache::SieveCache;
-    #[cfg(feature = "sync")] 
+    #[cfg(feature = "sync")]
     use sieve_cache::SyncSieveCache;
 
     #[derive(Clone)]

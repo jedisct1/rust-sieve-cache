@@ -175,6 +175,29 @@ impl<K: Eq + Hash + Clone + Weigh, V: Weigh, S: BuildHasher + Clone> WeightedSie
         })
     }
 
+    /// Returns a clone of the hash builder used by this cache.
+    ///
+    /// This is useful when converting to another cache variant and you want
+    /// to preserve the custom hasher configuration.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
+    /// use sieve_cache::WeightedSieveCache;
+    /// use std::hash::BuildHasherDefault;
+    /// use std::collections::hash_map::DefaultHasher;
+    ///
+    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    /// let cache: WeightedSieveCache<String, u32, _> = WeightedSieveCache::new_with_hasher(100, 1000, hasher).unwrap();
+    /// let retrieved_hasher = cache.hasher();
+    /// # }
+    /// ```
+    pub fn hasher(&self) -> S {
+        self.inner.hasher()
+    }
+
     /// Inserts a key-value pair into the cache.
     ///
     /// If the key already exists, its value is updated and the weight is

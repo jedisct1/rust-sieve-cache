@@ -68,6 +68,25 @@ where
         })
     }
 
+    /// Returns a clone of the hash builder used by this cache.
+    ///
+    /// This is useful when converting to another cache variant and you want
+    /// to preserve the custom hasher configuration.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::WeightedSyncSieveCache;
+    /// # use std::hash::BuildHasherDefault;
+    /// # use std::collections::hash_map::DefaultHasher;
+    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    /// let cache: WeightedSyncSieveCache<String, u32, _> = WeightedSyncSieveCache::new_with_hasher(100, 1000, hasher).unwrap();
+    /// let retrieved_hasher = cache.hasher();
+    /// ```
+    pub fn hasher(&self) -> S {
+        self.locked_cache().hasher()
+    }
+
     #[inline]
     fn locked_cache(&self) -> MutexGuard<'_, WeightedSieveCache<K, V, S>> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)

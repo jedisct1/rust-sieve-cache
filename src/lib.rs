@@ -256,7 +256,36 @@ impl<K: Eq + Hash + Clone, V, S: BuildHasher> SieveCache<K, V, S> {
             capacity,
         })
     }
+}
 
+// hasher() can only be implemented if the BuildHasher is also Clone,
+// since copies of mere references will be dropped by the MutexGuard in shared variants.
+impl<K: Eq + Hash + Clone, V, S: BuildHasher + Clone> SieveCache<K, V, S> {
+    /// Returns a clone of the hash builder used by this cache.
+    ///
+    /// This is useful when converting to a sharded or thread-safe variant and you want
+    /// to preserve the custom hasher configuration.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "doctest")]
+    /// # {
+    /// use sieve_cache::SieveCache;
+    /// use std::hash::BuildHasherDefault;
+    /// use std::collections::hash_map::DefaultHasher;
+    ///
+    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    /// let cache: SieveCache<String, u32, _> = SieveCache::new_with_hasher(100, hasher).unwrap();
+    /// let retrieved_hasher = cache.hasher();
+    /// # }
+    /// ```
+    pub fn hasher(&self) -> S {
+        (self.map.hasher()).clone()
+    }
+}
+
+impl<K: Eq + Hash + Clone, V, S: BuildHasher> SieveCache<K, V, S> {
     /// Returns the capacity of the cache.
     ///
     /// This is the maximum number of entries that can be stored before

@@ -34,6 +34,9 @@ where
     shards: Vec<Arc<Mutex<WeightedSieveCache<K, V, S>>>>,
     num_shards: usize,
     max_weight: usize,
+
+    // We store the hasher here to increase the performance of methods accessing the hasher,
+    // by avoiding the need to lock a shard just to access the hasher.
     hasher: S,
 }
 
@@ -148,6 +151,25 @@ where
             max_weight,
             hasher,
         })
+    }
+
+    /// Returns a clone of the hash builder used by this cache.
+    ///
+    /// This is useful when converting to another cache variant and you want
+    /// to preserve the custom hasher configuration.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::WeightedShardedSieveCache;
+    /// # use std::hash::BuildHasherDefault;
+    /// # use std::collections::hash_map::DefaultHasher;
+    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    /// let cache: WeightedShardedSieveCache<String, u32, _> = WeightedShardedSieveCache::with_shards_and_hasher(100, 1000, 4, hasher).unwrap();
+    /// let retrieved_hasher = cache.hasher();
+    /// ```
+    pub fn hasher(&self) -> S {
+        self.hasher.clone()
     }
 
     #[inline]

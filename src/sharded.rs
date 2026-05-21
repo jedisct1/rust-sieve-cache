@@ -131,7 +131,10 @@ where
     shards: Vec<Arc<Mutex<SieveCache<K, V, S>>>>,
     /// Number of shards in the cache - kept as a separate field for quick access
     num_shards: usize,
+    /// The hash builder used for sharding keys, cloned into each shard's SieveCache
     hasher: S,
+    // this is stored redundantly here to increase performance of get_shard_index()
+    // by avoiding a lock on the shard to access its hasher
 }
 
 impl<K, V, S> Default for ShardedSieveCache<K, V, S>
@@ -214,11 +217,12 @@ impl<K, V, S> From<crate::SyncSieveCache<K, V, S>> for ShardedSieveCache<K, V, S
 where
     K: Eq + Hash + Clone + Send + Sync,
     V: Clone + Send + Sync,
-    S: BuildHasher + Clone + Default,
+    S: BuildHasher + Clone,
 {
     /// Creates a new sharded cache from an existing `SyncSieveCache`.
     ///
     /// This allows for upgrading a standard thread-safe cache to a more scalable sharded version.
+    /// The custom hasher (if any) is preserved from the original cache.
     ///
     /// # Examples
     ///
@@ -232,10 +236,13 @@ where
     /// assert_eq!(sharded_cache.get(&"key".to_string()), Some("value".to_string()));
     /// ```
     fn from(sync_cache: crate::SyncSieveCache<K, V, S>) -> Self {
-        // Create a new sharded cache with the same capacity
+        // Extract the hasher from the inner cache before consuming the sync cache
+        let hasher = sync_cache.hasher();
+
+        // Create a new sharded cache with the same capacity and hasher
         let capacity = sync_cache.capacity();
-        let sharded = Self::new_with_hasher(capacity, Default::default())
-            .expect("Failed to create sharded cache");
+        let sharded =
+            Self::new_with_hasher(capacity, hasher).expect("Failed to create sharded cache");
 
         // Transfer all entries
         for (key, value) in sync_cache.entries() {
@@ -412,6 +419,25 @@ where
             num_shards,
             hasher,
         })
+    }
+
+    /// Returns a clone of the hash builder used by this cache.
+    ///
+    /// This is useful when converting to another cache variant and you want
+    /// to preserve the custom hasher configuration.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use sieve_cache::ShardedSieveCache;
+    /// # use std::hash::BuildHasherDefault;
+    /// # use std::collections::hash_map::DefaultHasher;
+    /// let hasher = BuildHasherDefault::<DefaultHasher>::default();
+    /// let cache: ShardedSieveCache<String, String, _> = ShardedSieveCache::with_shards_and_hasher(100, 4, hasher).unwrap();
+    /// let retrieved_hasher = cache.hasher();
+    /// ```
+    pub fn hasher(&self) -> S {
+        self.hasher.clone()
     }
 
     /// Returns the shard index for a given key.
