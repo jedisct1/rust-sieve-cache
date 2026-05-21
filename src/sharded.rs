@@ -12,7 +12,7 @@ const DEFAULT_SHARDS: usize = 16;
 /// A thread-safe implementation of `SieveCache` that uses multiple shards to reduce contention.
 ///
 /// This provides better concurrency than `SyncSieveCache` by splitting the cache into multiple
-/// independent shards, each priotected by its own mutex. Operations on different shards can
+/// independent shards, each protected by its own mutex. Operations on different shards can
 /// proceed in parallel, which can significantly improve throughput in multi-threaded environments.
 ///
 /// # How Sharding Works
