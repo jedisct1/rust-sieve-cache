@@ -77,7 +77,7 @@ where
     ///
     /// * `capacity` - The total capacity of the cache
     /// * `max_weight` - The memory budget in bytes
-    /// * `hasher` - A hash builder instance (e.g., from `ahash::AHasher` or `std::collections::hash_map::RandomState`)
+    /// * `hasher` - The hash builder used to hash cache keys
     ///
     /// Returns `Err` if `capacity` or `max_weight` is 0.
     pub fn new_with_hasher(
@@ -95,7 +95,7 @@ where
     /// * `capacity` - The total capacity of the cache
     /// * `max_weight` - The memory budget in bytes
     /// * `num_shards` - The number of shards to divide the cache into
-    /// * `hasher` - A hash builder instance (e.g., from `ahash::AHasher` or `std::collections::hash_map::RandomState`)
+    /// * `hasher` - The hash builder used to hash cache keys
     ///
     /// Returns `Err` if `capacity`, `max_weight`, or `num_shards` is 0,
     /// or if `max_weight < num_shards` (each shard needs at least 1 byte

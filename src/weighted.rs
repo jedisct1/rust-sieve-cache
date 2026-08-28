@@ -155,7 +155,7 @@ impl<K: Eq + Hash + Clone + Weigh, V: Weigh, S: BuildHasher + Clone> WeightedSie
     ///
     /// * `capacity` - The maximum number of entries in the cache
     /// * `max_weight` - The memory budget in bytes
-    /// * `hasher` - A hash builder instance (e.g., from `ahash::AHasher` or `std::collections::hash_map::RandomState`)
+    /// * `hasher` - The hash builder used to hash cache keys
     ///
     /// Returns `Err` if `capacity` is 0 or `max_weight` is 0.
     pub fn new_with_hasher(

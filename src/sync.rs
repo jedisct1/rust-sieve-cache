@@ -230,7 +230,7 @@ where
     /// # Arguments
     ///
     /// * `capacity` - The maximum number of entries in the cache
-    /// * `hasher` - A hash builder instance (e.g., from `ahash::AHasher` or `std::collections::hash_map::RandomState`)
+    /// * `hasher` - The hash builder used to hash cache keys
     ///
     /// # Errors
     ///

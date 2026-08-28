@@ -55,7 +55,7 @@ where
     ///
     /// * `capacity` - The maximum number of entries in the cache
     /// * `max_weight` - The memory budget in bytes
-    /// * `hasher` - A hash builder instance (e.g., from `ahash::AHasher` or `std::collections::hash_map::RandomState`)
+    /// * `hasher` - The hash builder used to hash cache keys
     ///
     /// Returns `Err` if `capacity` or `max_weight` is 0.
     pub fn new_with_hasher(

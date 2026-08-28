@@ -76,7 +76,7 @@ println!("Recommended capacity: {}", recommended);
 
 ### Custom Hash Builder
 
-You can also specify a custom hash builder to use a different hashing algorithm (e.g., `ahash` for faster hashing):
+You can provide a custom hash builder when an application needs different hashing behavior:
 
 ```rust
 use sieve_cache::SieveCache;
@@ -92,7 +92,7 @@ cache.insert("key".to_string(), "value".to_string());
 assert_eq!(cache.get("key"), Some(&"value".to_string()));
 ```
 
-This feature is useful when you need to optimize hashing performance for specific workloads or integrate with crates like `ahash`.
+This feature lets applications choose a hash builder whose performance and security properties match their workload.
 
 ## Thread-Safe Implementations
 
