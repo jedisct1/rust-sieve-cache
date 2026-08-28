@@ -1,7 +1,8 @@
 use crate::SieveCache;
 use std::borrow::Borrow;
+use std::collections::hash_map::RandomState;
 use std::fmt;
-use std::hash::{BuildHasher, Hash, Hasher, RandomState};
+use std::hash::{BuildHasher, Hash, Hasher};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 /// Default number of shards to use if not specified explicitly.
@@ -1830,7 +1831,7 @@ mod tests {
 
         // Test with custom hasher and default shard count
         let cache: ShardedSieveCache<String, i32, _> =
-            ShardedSieveCache::new_with_hasher(10, BuildHasherDefault::<DefaultHasher>::new())
+            ShardedSieveCache::new_with_hasher(10, BuildHasherDefault::<DefaultHasher>::default())
                 .unwrap();
 
         // Test basic insert operations

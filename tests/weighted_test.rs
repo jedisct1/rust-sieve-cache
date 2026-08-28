@@ -678,7 +678,7 @@ mod weighted_sharded_tests {
             WeightedShardedSieveCache::new_with_hasher(
                 10,
                 1000,
-                BuildHasherDefault::<DefaultHasher>::new(),
+                BuildHasherDefault::<DefaultHasher>::default(),
             )
             .unwrap();
 

@@ -78,8 +78,8 @@ pub mod _docs_sharded_usage {
     //!   are distributed across many different keys
 }
 
-use std::collections::HashMap;
-use std::hash::{Hash, RandomState};
+use std::collections::{hash_map::RandomState, HashMap};
+use std::hash::Hash;
 use std::{borrow::Borrow, hash::BuildHasher};
 
 #[cfg(feature = "sharded")]

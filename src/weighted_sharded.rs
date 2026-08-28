@@ -1,5 +1,6 @@
 use std::borrow::Borrow;
-use std::hash::{BuildHasher, Hash, Hasher, RandomState};
+use std::collections::hash_map::RandomState;
+use std::hash::{BuildHasher, Hash, Hasher};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::weighted::{Weigh, WeightedSieveCache};

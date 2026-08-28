@@ -1,7 +1,8 @@
 use crate::SieveCache;
 use std::borrow::Borrow;
+use std::collections::hash_map::RandomState;
 use std::fmt;
-use std::hash::{BuildHasher, Hash, RandomState};
+use std::hash::{BuildHasher, Hash};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 /// A thread-safe wrapper around `SieveCache`.

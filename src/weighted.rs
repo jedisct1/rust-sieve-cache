@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-use std::hash::{BuildHasher, Hash, RandomState};
+use std::collections::{hash_map::RandomState, HashMap};
+use std::hash::{BuildHasher, Hash};
 use std::mem;
 
 use crate::SieveCache;
