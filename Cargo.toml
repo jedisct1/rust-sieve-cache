@@ -1,6 +1,6 @@
 [package]
 name = "sieve-cache"
-version = "1.1.7"
+version = "1.2.0"
 edition = "2021"
 description = "In-memory cache using SIEVE eviction, with concurrent, thread-safe, sharded, and weighted cache variants"
 homepage = "https://github.com/jedisct1/rust-sieve-cache"
@@ -24,7 +24,7 @@ doctest = ["sync", "sharded", "weighted"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
-rand = "0.8.5"
+rand = "0.8.8"
 rand_distr = "0.4.3"
 
 [[bench]]
