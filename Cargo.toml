@@ -2,11 +2,11 @@
 name = "sieve-cache"
 version = "1.1.7"
 edition = "2021"
-description = "SIEVE cache replacement policy with thread-safe wrappers"
+description = "In-memory cache using SIEVE eviction, with concurrent, thread-safe, sharded, and weighted cache variants"
 homepage = "https://github.com/jedisct1/rust-sieve-cache"
 repository = "https://github.com/jedisct1/rust-sieve-cache"
 documentation = "https://docs.rs/sieve-cache"
-keywords = ["cache", "replacement", "sieve", "thread-safe", "concurrent"]
+keywords = ["cache", "caching", "sieve", "concurrent", "weighted"]
 license = "MIT"
 authors = ["Frank Denis <github@pureftpd.org>"]
 categories = ["algorithms", "caching", "concurrency", "data-structures"]
