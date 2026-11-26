@@ -3,7 +3,6 @@ name = "sieve-cache"
 version = "1.2.0"
 edition = "2021"
 description = "In-memory cache using SIEVE eviction, with concurrent, thread-safe, sharded, and weighted cache variants"
-homepage = "https://github.com/jedisct1/rust-sieve-cache"
 repository = "https://github.com/jedisct1/rust-sieve-cache"
 documentation = "https://docs.rs/sieve-cache"
 keywords = ["cache", "caching", "sieve", "concurrent", "weighted"]

@@ -1792,7 +1792,8 @@ mod tests {
             cache_clone1.get_mut(&"keyA_1".to_string(), |value| {
                 // Access another key, potentially in another shard
                 let other_value = cache_clone1.get(&"keyB_2".to_string());
-                assert_eq!(other_value, Some(2));
+                // The other thread may already have committed its update.
+                assert!(matches!(other_value, Some(2 | 22)));
 
                 // Even modify keys in other shards
                 cache_clone1.insert("keyC_3".to_string(), 3);
@@ -1803,8 +1804,6 @@ mod tests {
 
         // Thread 2: Concurrently modify values
         let thread2 = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(5)); // Give thread1 a head start
-
             // These would deadlock with unsafe locking implementation
             cache_clone2.get_mut(&"keyB_2".to_string(), |value| {
                 *value += 20;
